@@ -1,0 +1,1 @@
+"""Mars experiment domain component."""

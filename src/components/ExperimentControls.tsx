@@ -1,60 +1,82 @@
 import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
 import { useState } from "react";
-import type { ExperimentConfig, ExperimentState } from "../simulation/types";
+import {
+  isTerminal,
+  type ExperimentConfig,
+  type ExperimentState,
+} from "../simulation/types";
+
+const fields = [
+  { key: "seed", label: "Seed", min: 0, max: Number.MAX_SAFE_INTEGER, step: 1 },
+  { key: "numberOfAgents", label: "Agents", min: 1, max: 64, step: 1 },
+  { key: "gridWidth", label: "Grid width", min: 1, max: 256, step: 1 },
+  { key: "gridHeight", label: "Grid height", min: 1, max: 256, step: 1 },
+  { key: "numberOfWaterDeposits", label: "Deposits", min: 1, max: 2, step: 1 },
+  { key: "startingBudget", label: "Budget / agent", min: 0, step: "any" },
+  { key: "discoveryReward", label: "Discovery prize", min: 0, step: "any" },
+  { key: "humanCost", label: "Human cost", min: 0, step: "any" },
+  { key: "humanQuality", label: "Human quality", min: 0, max: 1, step: "any" },
+  { key: "maxRounds", label: "Round limit", min: 1, step: 1 },
+] as const;
+const toDraft = (config: ExperimentConfig) =>
+  Object.fromEntries(
+    Object.entries(config).map(([key, value]) => [key, String(value)]),
+  );
 
 export function ExperimentControls({
   state,
+  config,
   busy,
+  playing,
   onControl,
   onApplySettings,
+  onReplay,
+  canReplay,
+  replayActive,
 }: {
-  state: ExperimentState;
+  state: ExperimentState | null;
+  config: ExperimentConfig;
   busy: boolean;
-  onControl: (command: "start" | "pause" | "step" | "reset") => void;
-  onApplySettings: (config: ExperimentConfig) => Promise<void>;
+  playing: boolean;
+  onControl: (
+    command: "start" | "pause" | "step" | "reset" | "refresh",
+  ) => void;
+  onApplySettings: (config: ExperimentConfig) => void;
+  onReplay: () => void;
+  canReplay: boolean;
+  replayActive: boolean;
 }) {
-  const [draft, setDraft] = useState(() => ({
-    gridWidth: String(state.config.gridWidth),
-    gridHeight: String(state.config.gridHeight),
-    numberOfAgents: String(state.config.numberOfAgents),
-    numberOfWaterDeposits: state.config.numberOfWaterDeposits === undefined ? "" : String(state.config.numberOfWaterDeposits),
-    startingBudget: String(state.config.startingBudget),
-    discoveryReward: String(state.config.discoveryReward),
-  }));
-  const fields = [
-    { key: "gridWidth", label: "Grid width", min: 1, step: 1 },
-    { key: "gridHeight", label: "Grid height", min: 1, step: 1 },
-    { key: "numberOfAgents", label: "Agents", min: 1, step: 1 },
-    { key: "numberOfWaterDeposits", label: "Deposits", min: 1, max: 2, step: 1 },
-    { key: "startingBudget", label: "Budget / agent", min: 0.01, step: "any" },
-    { key: "discoveryReward", label: "Discovery prize", min: 0, step: "any" },
-  ] as const;
-  const terminal = state.status === "success" || state.status === "failure";
+  const [draft, setDraft] = useState(() => toDraft(config));
+  const blocked =
+    !state ||
+    isTerminal(state) ||
+    state.status === "awaiting_human" ||
+    state.status === "awaiting_api";
   return (
     <aside className="experiment-controls">
       <p className="eyebrow">Experiment</p>
       <div className="round-number">
-        {String(state.round).padStart(2, "0")}
-        <span>/ {state.maxRounds ?? "—"}</span>
+        {String(state?.round ?? 0).padStart(2, "0")}
+        <span>/ {config.maxRounds}</span>
       </div>
-      <p className="muted round-caption">Current round</p>
+      <p className="muted round-caption">
+        {replayActive
+          ? "Recorded round"
+          : busy && state
+            ? "Request in progress…"
+            : "Current round"}
+      </p>
       <button
         className="primary-button"
-        disabled={busy || terminal}
-        onClick={() =>
-          onControl(state.status === "running" ? "pause" : "start")
-        }
+        disabled={!playing && (busy || blocked)}
+        onClick={() => onControl(playing ? "pause" : "start")}
       >
-        {state.status === "running" ? <Pause size={16} /> : <Play size={16} />}
-        {state.status === "running"
-          ? "Pause"
-          : state.round === 0
-            ? "Run experiment"
-            : "Resume"}
+        {playing ? <Pause size={16} /> : <Play size={16} />}
+        {playing ? "Pause" : "Play"}
       </button>
       <button
         className="secondary-button"
-        disabled={busy || terminal || state.status === "running"}
+        disabled={busy || playing || blocked}
         onClick={() => onControl("step")}
       >
         <StepForward size={16} />
@@ -62,50 +84,125 @@ export function ExperimentControls({
       </button>
       <button
         className="text-button reset-button"
-        disabled={busy}
+        disabled={busy || !state || replayActive}
         onClick={() => onControl("reset")}
       >
         <RotateCcw size={14} />
         Reset experiment
       </button>
-      <form className="settings" onSubmit={(event) => {
-        event.preventDefault();
-        const config: ExperimentConfig = {
-          gridWidth: Number(draft.gridWidth),
-          gridHeight: Number(draft.gridHeight),
-          numberOfAgents: Number(draft.numberOfAgents),
-          numberOfWaterDeposits: draft.numberOfWaterDeposits === "" ? undefined : Number(draft.numberOfWaterDeposits),
-          startingBudget: Number(draft.startingBudget),
-          discoveryReward: Number(draft.discoveryReward),
-        };
-        void onApplySettings(config);
-      }}>
+      {state && (
+        <button
+          className="text-button"
+          disabled={busy || playing || replayActive}
+          onClick={() => onControl("refresh")}
+        >
+          Refresh state
+        </button>
+      )}
+      {!replayActive && (
+        <button
+          className="text-button"
+          disabled={busy || !canReplay}
+          onClick={onReplay}
+        >
+          Replay recorded run
+        </button>
+      )}
+      {busy && !playing && state && state.status !== "awaiting_api" && (
+        <p className="small muted">
+          An in-flight round finishes before playback stops.
+        </p>
+      )}
+      <form
+        className="settings"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const next = {
+            ...config,
+            humanMode: draft.humanMode,
+            treatment: draft.treatment,
+          } as ExperimentConfig;
+          for (const field of fields)
+            next[field.key] = Number(draft[field.key]);
+          onApplySettings(next);
+        }}
+      >
         <p className="eyebrow">Experiment settings</p>
-        <fieldset disabled={busy || state.status === "running"} className="settings-fields">
-          {fields.map(field => <label key={field.key} className="settings-field">
-            <span>{field.label}</span>
-            <input
-              type="number"
-              name={field.key}
-              min={field.min}
-              max={"max" in field ? field.max : undefined}
-              step={field.step}
-              required={field.key !== "numberOfWaterDeposits"}
-              placeholder={field.key === "numberOfWaterDeposits" ? "Unspecified" : undefined}
-              value={draft[field.key]}
-              onChange={event => setDraft(previous => ({...previous, [field.key]: event.target.value}))}
-            />
-          </label>)}
-          <button type="submit" className="secondary-button">Apply &amp; reset</button>
-          <button type="button" className="text-button" onClick={() => setDraft({
-            gridWidth: String(state.config.gridWidth), gridHeight: String(state.config.gridHeight),
-            numberOfAgents: String(state.config.numberOfAgents),
-            numberOfWaterDeposits: state.config.numberOfWaterDeposits === undefined ? "" : String(state.config.numberOfWaterDeposits),
-            startingBudget: String(state.config.startingBudget), discoveryReward: String(state.config.discoveryReward),
-          })}>Restore current values</button>
+        <fieldset
+          disabled={busy || playing || state?.status === "awaiting_human" || replayActive}
+          className="settings-fields"
+        >
+          {fields.map((field) => (
+            <label key={field.key} className="settings-field">
+              <span>{field.label}</span>
+              <input
+                type="number"
+                name={field.key}
+                min={field.min}
+                max={"max" in field ? field.max : undefined}
+                step={field.step}
+                required
+                value={draft[field.key]}
+                onChange={(event) =>
+                  setDraft((previous) => ({
+                    ...previous,
+                    [field.key]: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ))}
+          <label className="settings-field">
+            <span>Human mode</span>
+            <select
+              value={draft.humanMode}
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  humanMode: event.target.value,
+                }))
+              }
+            >
+              <option value="simulated">Simulated advisor</option>
+              <option value="interactive">Interactive advisor</option>
+            </select>
+          </label>
+          <label className="settings-field">
+            <span>Treatment</span>
+            <select
+              value={draft.treatment}
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  treatment: event.target.value,
+                }))
+              }
+            >
+              <option value="free_choice">Free choice</option>
+              <option value="solo_only">Solo only</option>
+              <option value="ai_collab_available">
+                AI collaboration available
+              </option>
+              <option value="human_available">Human available</option>
+            </select>
+          </label>
+          <button type="submit" className="secondary-button">
+            {state ? "Apply & reset" : "Create experiment"}
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setDraft(toDraft(config))}
+          >
+            Restore current values
+          </button>
         </fieldset>
-        <p className="small muted">Costs and rewards in experiment credits.</p>
-        <p className="small muted settings-help">{state.source === "demo" ? "Custom settings require the backend. This demo plays the default setup only." : "Apply starts a fresh experiment. Pause before changing settings."}</p>
+        <p className="small muted settings-help">
+          {state
+            ? "Apply creates a fresh run. Pause before editing."
+            : "Defaults supplied by the backend. Create first, then Play or Step."}{" "}
+          Costs and rewards in experiment credits.
+        </p>
       </form>
       <div className="experiment-note">
         <span className="small-label">The decision</span>
@@ -114,7 +211,7 @@ export function ExperimentControls({
           <br />
           Share information and reward.
           <br />
-          Or pay for expert guidance.
+          Or pay for private expert guidance.
         </p>
       </div>
     </aside>

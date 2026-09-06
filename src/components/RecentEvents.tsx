@@ -11,41 +11,51 @@ const icons = {
   move: ArrowUpRight,
   observe: ScanLine,
   drill: Crosshair,
-  join_pool: Users,
-  ask_human: Sparkles,
+  join_ai_pool: Users,
+  choose_human: Sparkles,
+  invalid_decision: Activity,
 };
 export function RecentEvents({ events }: { events: ExperimentEvent[] }) {
+  const ordered = [...events].reverse();
   return (
     <section className="recent-events">
       <div className="rail-heading">
         <h2>
           <Activity size={16} />
-          Recent activity
+          Activity log
         </h2>
-        <span className="small muted">Latest resolved actions</span>
+        <span className="small muted">
+          {events.length
+            ? `${events.length} entries · every round, every rover`
+            : "Every round, every rover"}
+        </span>
       </div>
-      <div className="event-strip">
-        {events
-          .slice(-4)
-          .reverse()
-          .map((e) => {
-            const Icon = e.action ? icons[e.action] : Activity;
+      {ordered.length === 0 ? (
+        <p className="small muted">No activity yet. Play or Step to begin.</p>
+      ) : (
+        <ol className="event-list">
+          {ordered.map((e) => {
+            const Icon = e.action ? (icons[e.action] ?? Activity) : Activity;
             return (
-              <article key={e.id}>
+              <li key={e.id}>
                 <span className="event-icon">
-                  <Icon size={17} />
+                  <Icon size={15} />
+                </span>
+                <span className="event-round">
+                  R{String(e.round).padStart(2, "0")}
                 </span>
                 <div>
                   <span className="entry-meta">
-                    ROUND {String(e.round).padStart(2, "0")}
-                    {e.agentId && ` · AGENT ${e.agentId}`}
+                    {e.agentId ? `AGENT ${e.agentId}` : "SYSTEM"}
+                    {e.action ? ` · ${e.action}` : ""}
                   </span>
                   <p>{e.summary}</p>
                 </div>
-              </article>
+              </li>
             );
           })}
-      </div>
+        </ol>
+      )}
     </section>
   );
 }

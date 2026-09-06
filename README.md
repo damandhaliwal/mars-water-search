@@ -1,238 +1,148 @@
 # Mars Water Search
 
-A multi-agent exploration experiment in a simplified Mars-like environment.
+A local experiment in how Gemini Flash rovers choose independent exploration,
+AI collaboration, or costly human guidance while searching for underground water.
+Each rover maximizes **its own reward minus its own costs**.
 
-> Under what conditions do autonomous agents choose independence, collaboration,
-> or costly expert guidance when searching for a scarce resource under uncertainty?
+The Python backend owns the environment, beliefs, resources, and prizes.
+[smolagents ToolCallingAgent](https://huggingface.co/docs/smolagents/en/reference/agents)
+collects one Gemini tool decision per rover. A
+[LangGraph StateGraph](https://docs.langchain.com/oss/python/langgraph/interrupts)
+orchestrates the simultaneous rounds and durable human interruptions. FastAPI
+connects this engine to the existing React/TypeScript mission view.
 
-Agents search for underground water with private information and individual resource
-budgets. They can explore alone, contribute information to a persistent collective
-in exchange for a share of the discovery prize, or buy imperfect expert guidance.
-Cooperation is a choice whose value we want to study, not a behavior we reward directly.
+**Gemini Flash is the only rover policy. There is no mock-model mode, fallback
+policy, or Wolfram dependency.** The real demo requires a Gemini API key. Tests of
+domain rules and network boundaries can run without credentials.
 
-## Project status and responsibilities
+## Current experiment
 
-This repository currently contains a **React + TypeScript frontend with deterministic
-scripted demo data**. It does not yet run the experiment described below.
+- Default: 50×50 grid, one coherent hidden water deposit, four rovers, 300 credits
+  each, a 1,000-credit prize, and up to 100 rounds.
+- All agents start PRIVATE with the same prior. AI_POOL and HUMAN_ASSISTED are
+  irreversible, mutually exclusive choices. Human advice remains private forever.
+- MOVE, OBSERVE, DRILL, JOIN_AI_POOL, and CHOOSE_HUMAN each consume one round.
+  No WAIT action exists. Movement costs Manhattan distance and reveals no evidence.
+- A zero-budget private rover may join the zero-cost pool. Joining shares previous
+  observations; subsequent evidence automatically enters the board.
+- Pool reward eligibility is determined before the winning round. Inactive existing
+  members retain their shares; same-round joiners do not receive the prize.
+- A private/human winner keeps the prize. An AI-pool winner splits it equally with
+  eligible members. Simultaneous discoveries use highest intensity, then seeded ties.
+- Simulated and interactive human modes provide a bounded recommendation from a
+  better but imperfect coarse prior. Neither gives a rover the adviser map or truth.
+- Four treatments: free choice, solo only, AI collaboration available, human available.
 
-Eduardo is responsible for the simulation backend, agentic simulation engine, and
-planned Wolfram integration. The frontend displays provider-supplied state through
-a small adapter boundary. It does not implement agent reasoning, water generation,
-sensor models, Bayesian updating, or authoritative reward calculations.
+Read the [complete experiment design](docs/experiment-design.md) for semantics and
+belief-model limitations. These rules replace the earlier shared-human-advice demo.
 
-## Experiment design
+## Setup
 
-### World and hidden water
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Node.js 22+, npm.
+Dependencies are pinned and locked in `backend/pyproject.toml`, `backend/uv.lock`,
+and `package-lock.json`.
 
-The world is a configurable discrete 2D grid, initially envisioned as 50×50 or
-100×100 cells. Its size and resource costs should make exhaustive search by one
-agent infeasible within that agent's budget.
-
-Each episode contains one deposit, or two with some probability. Deposits form
-spatially coherent regions rather than independent water assignments to cells.
-A Gaussian or elliptical field is sufficient for an initial backend implementation.
-The hidden water intensity at a cell is:
-
-$$W(x,y) \in [0,1].$$
-
-Cells near a deposit's center have stronger water intensity than cells near its
-edges. A drill succeeds when local intensity meets a qualifying threshold:
-
-$$W(x,y) \geq W^*.$$
-
-The true map is hidden from agents. An explicitly authorized presenter view may
-receive ground truth, but it must remain separate from agent and adviser inputs.
-
-### Agents, information, and beliefs
-
-There are N agents at random or predetermined starting positions. Each has its own
-finite budget, position, private memory, action history, and belief map. All begin
-with the same prior and no privileged knowledge:
-
-$$B_1^0 = B_2^0 = \cdots = B_N^0.$$
-
-The belief displayed for agent i is the probability that drilling a particular
-cell would succeed, conditional on the evidence available to that agent:
-
-$$B_i(x,y) = P_i(W(x,y) \geq W^* \mid \text{available evidence}).$$
-
-Beliefs diverge as agents acquire different observations, drill results, pool
-information, and human guidance. Because deposits are spatially coherent, evidence
-at one cell should inform nearby cells. The exact spatial belief-update method
-belongs to the backend and has not been implemented in this frontend.
-
-Action costs and rewards influence strategy; they are not themselves evidence of
-water. Water intensity, sensor readings, and probability of a successful drill are
-distinct quantities.
-
-### Rounds and resources
-
-Each active agent chooses exactly one action per round, using only the information
-available at the start of that round. The backend resolves actions together.
-At round end, agents receive their action outcomes, newly available evidence,
-shared information, any human response, costs, remaining budget, and any reward.
-They update their beliefs before the next round.
-
-There is **no WAIT action**. Costs come from the acting agent's individual budget,
-not a shared mission budget. An agent that exhausts its budget is inactive and can
-no longer act. Exhaustion does not remove an already established collective prize
-entitlement.
-
-### Actions
-
-| Action | Effect | Economic consequence |
-| --- | --- | --- |
-| MOVE | Move directly to any grid cell. Movement itself reveals no environmental information; observing requires a later action. | Distance-based individual cost. |
-| OBSERVE | Obtain an imperfect local signal correlated with water; update beliefs using spatial relationships. | Relatively inexpensive information. |
-| DRILL | Reveal the true local water state at the current position; discover water if the threshold is met. | Expensive, definitive local information. |
-| JOIN INFORMATION POOL | Permanently join the single collective and contribute historical and future relevant information. | Richer evidence in exchange for reward dilution; any action charge is individually paid. |
-| ASK HUMAN | Purchase bounded, high-quality but imperfect expert guidance. | Substantial individual cost and one action; no separate reward share for the adviser. |
-
-Initial movement cost is proportional to Manhattan distance:
-
-$$C_{\text{move}} = c_m (|x_2-x_1| + |y_2-y_1|).$$
-
-A conceptual observation model is:
-
-$$S(x,y) = f(W(x,y)) + \epsilon.$$
-
-A scan never directly exposes the true local water state. Exact costs, noise, and
-sensor behavior are simulation parameters, not frontend decisions.
-
-### Information pool and prize eligibility
-
-Communication takes the form of **one shared information pool**, not pairwise chat.
-The frontend represents it as a chronological shared research log.
-
-Joining is persistent for the episode. On joining, an agent gains access to the
-pool's accumulated evidence and contributes its relevant historical information.
-Future relevant observations, locations, drill results, human responses, and
-belief evidence automatically become available to the pool through the backend.
-Evidence retains its original source and acquisition round when shared later.
-
-**An agent receives a collective prize share only if its information was incorporated
-into the collective belief before the winning round begins.** Joining during the
-winning round does not qualify. Membership alone is not a substitute for this
-information-inclusion rule; the backend supplies eligibility explicitly.
-
-An exhausted contributor retains its qualifying share even though it can no longer
-move, observe, drill, or otherwise act. Shares are equal among eligible contributors;
-we do not weight them by expenditure or retrospectively estimated usefulness.
-
-### Human guidance
-
-The human is an imperfect expert, not an omniscient oracle. The intended information
-advantage is a starting belief approximately halfway from the agents' initial prior
-toward a blurred/noisy approximation of the true water distribution:
-
-$$H_0 = 0.5 B_0 + 0.5 T'.$$
-
-This is a conceptual construction. The backend must represent these quantities on
-compatible scales; it is not a claim that the adviser is 50% more accurate under
-an established calibration metric.
-
-An answer is bounded: a likelihood for a region, a comparison of candidate regions,
-an estimate at the current location, or a recommended search direction. The adviser
-never reveals a full map. Advice should be more informative than ordinary sensing
-but substantially more expensive, and it can be wrong.
-
-The requesting agent always pays personally. A private agent keeps its advice
-private until it joins. A pool member's response is shared automatically; previously
-purchased advice is also contributed on joining. Asking the human does not create
-an additional prize recipient. Existing collective reward-sharing rules still apply.
-
-### Rewards and stopping
-
-Each agent maximizes its own net utility:
-
-$$U_i = R_i - C_i,$$
-
-where C_i is that agent's accumulated action cost and V is the discovery prize.
-
-- If a private agent wins, it receives V.
-- If a pool member wins, each eligible contributor receives V / N_eligible.
-- Agents outside the winning recipient set receive zero discovery reward.
-- Every agent bears its own costs, including agents that receive no reward.
-
-There are no direct bonuses for exploration, observation, joining, cooperation,
-asking the human, or diversity. These behaviors are valuable only insofar as they
-improve expected individual discovery payoff.
-
-The episode ends when qualifying water is first successfully drilled. If nobody
-succeeds, it ends when all agents exhaust their budgets or the round limit is reached.
-The presence of a second deposit does not change this first-discovery stopping rule.
-Simultaneous qualifying drills require a backend resolution policy; this README
-does not assign that decision to the frontend.
-
-## What we want to study
-
-- When is shared evidence worth a smaller share of the prize?
-- When do agents buy expert guidance rather than explore or join the pool?
-- How do agents divide the search and avoid redundant exploration?
-- Can information-rich but resource-poor agents enable others to discover water?
-- How do information limits, strategy diversity, and resource costs affect outcomes?
-- How would centralized coordination or alternative reward structures change behavior?
-
-The baseline uses individual incentives with voluntary collective sharing. Different
-team/individual reward mixtures and communication mechanisms are later experimental
-variants, not features already implemented here. Scripted demo outcomes are not
-research findings or evidence of emergent cooperation.
-
-## Run the current frontend locally
-
-Use Node.js 22+ and npm:
+From the repository root:
 
 ```sh
-npm install
+cp .env.example .env
+```
+
+Edit `.env` yourself and set:
+
+```dotenv
+GEMINI_API_KEY=your-key
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_TEMPERATURE=0
+GEMINI_MAX_CONCURRENCY=4
+GEMINI_REQUEST_INTERVAL=1
+```
+
+Obtain a key through [Google AI Studio](https://aistudio.google.com/api-keys), enable
+API access for your project, and ensure its quota/billing permits the selected model.
+The default model is listed in [Google's model catalog](https://ai.google.dev/gemini-api/docs/models).
+The model ID can be changed to an available Gemini Flash ID; other providers are
+not supported. The key stays server-side and must never be committed or prefixed
+with `VITE_`. Ordinary setup and tests do not incur Gemini calls; running an
+experiment, batch, or explicitly marked integration test does.
+
+API errors pause the pending round and preserve accepted decisions. The UI shows
+its error category and a manual retry after the cooldown; no rover loses a turn
+or spends credits because the API failed. Request starts are spaced by
+`GEMINI_REQUEST_INTERVAL` seconds. `GEMINI_RETRIES` applies to invalid model
+choices, not API outages. Batch execution stops with a resumable checkpoint on
+provider failure.
+
+Terminal 1, from the repository root:
+
+```sh
+cd backend
+uv sync --locked
+uv run uvicorn mars_agents.api.main:app --host 127.0.0.1 --port 8000
+```
+
+Terminal 2, from the repository root (the existing frontend stays here):
+
+```sh
+npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite. Development and production-preview servers bind to
-`127.0.0.1` only, so other devices on the same network cannot connect directly.
-Do not override the host with `0.0.0.0` or expose it through a tunnel or reverse proxy.
-This project has not been deployed to a hosting service.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Both services bind only to
+loopback. Other devices on the network cannot connect directly. Do not expose
+these research endpoints with a tunnel, reverse proxy, or `--host 0.0.0.0`.
+No hosting deployment is configured. The Vite proxy uses BACKEND_URL, defaulting
+to http://127.0.0.1:8000, for `/api` requests.
 
-Run experiment plays nine predefined rounds. Step advances one round, Pause stops
-playback, and Reset returns to identical priors. All agents' supplied movement paths
-are visible; selecting an agent or Pool changes the displayed belief. Ground truth
-is supplied only at the final demo frame and requires an explicit presenter reveal.
+## Live demo
 
-Settings are editable and prefilled with the current values. Apply & reset passes
-them to the provider. Custom values require the backend: the scripted provider
-rejects them without changing the run. Restore current values discards edits.
-Settings are disabled during playback.
+1. Create a seeded four-agent experiment using the prefilled settings.
+2. Choose simulated human mode for uninterrupted runs, or interactive for a live adviser.
+3. Step or Play; every rover decision is made by Gemini Flash. Pause waits for the
+   current round request to finish and prevents another from starting.
+4. Select agent beliefs or the pool belief. All supplied rover paths remain visible.
+5. If a rover chooses human assistance in interactive mode, select a region in the
+   adviser overlay and submit. LangGraph resumes the same round; multiple requests
+   appear sequentially. No real water map is shown to the adviser.
+6. Continue to success, budget exhaustion, or the round limit.
+7. Inspect rewards, costs, and utilities. Explicitly reveal truth after termination.
 
-### Scripted demo assumptions
+If GEMINI_API_KEY is missing, creation and inspection work but stepping fails clearly.
+No scripted data or alternative model is substituted. See
+[remaining local setup and verification](docs/setup-and-verification.md).
 
-- 50×50 grid, four agents, one deposit, 300 credits per agent, 1,000-credit prize.
-- Move costs 2 per Manhattan unit; observe 15; drill 100; human 160; joining 5.
-  These are fixture values, not settled backend defaults.
-- C buys private human advice in round 3 and shares it by joining in round 4.
-  C exhausts its budget in round 8 and retains eligibility for D's round-9 discovery.
-- Belief maps are hand-authored display swatches, not computed posteriors. Human
-  guidance and payouts are scripted. Displayed payouts are rounded to two decimals.
-- Coordinates are zero-based, with x increasing right and y increasing down.
-- The console is a presenter view, not an agent observation endpoint or human-adviser
-  interface. Its visibility into different agents must not be reused by those agents.
+## Batch experiments
 
-## Backend integration
+From `backend/`, with a configured key:
 
-Implement `createBackendSimulationClient` in
-`src/simulation/BackendSimulationClient.ts` to return a `SimulationClient`.
-This integration layer translates Eduardo's payloads into frontend domain types.
-React components must not know about Wolfram types or backend transport details.
+```sh
+uv run python -m mars_agents.experiments.batch --episodes 3 --seed 42 \
+  --agents 4 --treatment free_choice --human-mode simulated \
+  --model gemini-3.8-flash --output ../data/batch
+```
 
-Set `VITE_SIMULATION_MODE=backend` in a local `.env` and restart Vite after the adapter
-is implemented. The default is `demo`. Unconfigured backend mode reports an error;
-it never silently falls back to demo data. Vite environment variables are public
-browser configuration, not secret storage.
+Use `--config path/to/config.json` for additional parameters. Interactive human mode
+is not supported by batch execution. Logs include each episode's config, round
+JSONL, terminal summary, and an aggregate `episode_summary.csv`. These contain
+privileged evaluator data and are excluded from Git.
 
-See [the frontend integration contract](docs/simulation-frontend-contract.md) for
-snapshots, control operations, evidence provenance, belief rasters, prize eligibility,
-and optional ground-truth data. The actual backend transport is still to be agreed
-with Eduardo.
+## Verification
 
-## Checks
+From `backend/` (no model calls):
+
+```sh
+uv run ruff check .
+uv run mypy src
+uv run pytest
+```
+
+Explicit real-model checks, requiring a key and consuming API quota:
+
+```sh
+uv run pytest -m gemini
+```
+
+From the repository root:
 
 ```sh
 npm run lint
@@ -240,3 +150,23 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Source layout and interfaces
+
+- `backend/src/mars_agents/environment`, `domain`, `beliefs`: seeded world, rules,
+  allowlisted AgentView, and replaceable spatial belief updates.
+- `backend/src/mars_agents/agents`: Gemini configuration, proposal tools, bounded
+  retries, and concurrent smolagents decisions.
+- `backend/src/mars_agents/orchestration`: LangGraph round lifecycle and SQLite
+  interrupt/resume checkpoints keyed by experiment ID.
+- `backend/src/mars_agents/experiments`: service, JSONL/CSV logging, batch CLI.
+- `backend/src/mars_agents/api`: typed FastAPI presenter endpoints.
+- `src/simulation/BackendSimulationClient.ts`: the only frontend transport boundary.
+- `src/components`: existing mission layout, belief map, pool board, and adviser UI.
+
+The [frontend contract](docs/simulation-frontend-contract.md) describes visibility and
+transport. Normal state never includes truth. Full presenter state is not an agent
+observation endpoint. Model prompts use a distinct allowlist with compact belief
+summaries; private agents cannot read others' evidence, and no rover sees the human
+prior. Only concise decision reasons and final tool metadata are retained, not hidden
+chain-of-thought. LangGraph checkpoints and evaluator logs stay on the local machine.

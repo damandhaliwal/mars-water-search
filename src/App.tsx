@@ -1,75 +1,98 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ArrowUpRight, Radio } from "lucide-react";
 import type { SimulationClient } from "./simulation/SimulationClient";
-import type { ExperimentConfig, ExperimentState } from "./simulation/types";
+import { isTerminal, type ExperimentConfig } from "./simulation/types";
 import { ExperimentControls } from "./components/ExperimentControls";
 import { MarsGrid } from "./components/MarsGrid";
 import { AgentList } from "./components/AgentList";
 import { InformationPool } from "./components/InformationPool";
 import { RecentEvents } from "./components/RecentEvents";
 import { SuccessSummary } from "./components/SuccessSummary";
+import { HumanAdvisor } from "./components/HumanAdvisor";
+import { ProviderPause } from "./components/ProviderPause";
+import { ReplayBar } from "./components/ReplayBar";
 
 export default function App({ client }: { client: SimulationClient }) {
-  const [state, setState] = useState<ExperimentState | null>(null);
+  const {
+    state,
+    config,
+    health,
+    busy,
+    playing,
+    error,
+    humanRequests,
+    groundTruth,
+    replay,
+  } = useSyncExternalStore(client.subscribe, client.getSnapshot);
   const [selected, setSelected] = useState("A");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // The client publishes errors to the view, including those from background playback.
+  const run = (operation: Promise<unknown>) => {
+    void operation.catch(() => {});
+  };
   useEffect(() => {
-    let active = true,
-      receivedUpdate = false;
-    const unsubscribe = client.subscribe((snapshot) => {
-      receivedUpdate = true;
-      if (active) setState(snapshot);
-    });
-    client
-      .getExperimentState()
-      .then((snapshot) => {
-        if (active && !receivedUpdate) setState(snapshot);
-      })
-      .catch((e) => {
-        if (active)
-          setError(
-            e instanceof Error ? e.message : "Unable to load experiment.",
-          );
-      });
+    void client.initialize().catch(() => {});
     return () => {
-      active = false;
-      unsubscribe();
+      client.pause();
     };
   }, [client]);
-  async function control(command: "start" | "pause" | "step" | "reset") {
-    setBusy(true);
-    setError(null);
-    try {
-      await client[command]();
-      if (command === "reset") setSelected("A");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Experiment control failed.");
-    } finally {
-      setBusy(false);
-    }
+  function control(command: "start" | "pause" | "step" | "reset" | "refresh") {
+    if (command === "start" || command === "pause") client[command]();
+    else
+      run(
+        command === "refresh" ? client.getExperimentState() : client[command](),
+      );
   }
-  async function applySettings(config: ExperimentConfig) {
-    setBusy(true);
-    setError(null);
-    try {
-      await client.reset(config);
-      setSelected("A");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to apply settings.");
-    } finally {
-      setBusy(false);
-    }
+  function applySettings(next: ExperimentConfig) {
+    setSelected("A");
+    run(state ? client.reset(next) : client.create(next));
   }
-  if (!state)
+  const canReplay = !replay && !!state && state.round >= 1;
+  // Unmount the presenter while advising, including during loading and request errors.
+  if (state?.status === "awaiting_human")
+    return (
+      <HumanAdvisor
+        key={humanRequests[0]?.id ?? "pending"}
+        request={humanRequests[0]}
+        pendingCount={humanRequests.length}
+        busy={busy}
+        playing={playing}
+        error={error}
+        onSubmit={(response) => run(client.submitHumanResponse(response))}
+        onRefresh={() => run(client.refreshHumanRequests())}
+        onPause={client.pause}
+      />
+    );
+  if (!config)
     return (
       <main className="loading-state">
         <h1>Mars Water Search</h1>
         <p role={error ? "alert" : "status"}>
-          {error ?? "Loading experiment…"}
+          {error ?? "Connecting to the local backend…"}
         </p>
+        {error && (
+          <button
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => run(client.initialize())}
+          >
+            Retry connection
+          </button>
+        )}
       </main>
     );
+  const status = state?.status === "awaiting_api" || isTerminal(state)
+    ? state!.status
+    : playing
+      ? "running"
+      : state?.status === "running"
+        ? "paused"
+        : (state?.status ?? "idle");
+  const selection =
+    selected === "pool" && state?.pool.memberIds.length
+      ? "pool"
+      : state?.agents.some((a) => a.id === selected)
+        ? selected
+        : (state?.agents[0]?.id ?? "A");
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -83,68 +106,145 @@ export default function App({ client }: { client: SimulationClient }) {
           </div>
         </div>
         <div className="header-status">
-          <span className="demo-label">
-            {state.source === "demo" ? "Scripted demo" : "Connected experiment"}
+          <span className="backend-label">
+            Gemini · {health?.model ?? "Backend"}
           </span>
-          <span className={`status ${state.status}`}>
+          <span className={`status ${status}`}>
             <Radio size={14} />
-            {state.status === "idle" ? "Ready" : state.status}
+            {status === "awaiting_api" ? "API paused" : status === "idle" ? "Ready" : status}
           </span>
         </div>
       </header>
       <div className="study-caption">
-        <span>EXPERIMENT 001</span>
+        <span>SEED {config.seed}</span>
         <p>
           Independent exploration, collective knowledge, or expert guidance.
         </p>
         <span className="small">Individual budgets · Shared uncertainty</span>
       </div>
+      {health && !health.geminiConfigured && (
+        <div className="error-banner" role="status">
+          <span>
+            Gemini is not configured. Set GEMINI_API_KEY in the backend
+            environment and restart the backend. Creating an experiment is
+            available; Play and Step require the key.
+          </span>
+          <button
+            disabled={busy || playing}
+            onClick={() => run(client.initialize())}
+          >
+            Check connection
+          </button>
+        </div>
+      )}
       {error && (
         <div className="error-banner" role="alert">
           {error}
-          <button onClick={() => setError(null)}>Dismiss</button>
         </div>
+      )}
+      {state?.status === "awaiting_api" && (
+        <ProviderPause
+          failure={state.providerFailure}
+          busy={busy}
+          onRetry={() => run(client.step())}
+        />
+      )}
+      {replay && state && (
+        <ReplayBar
+          index={replay.index}
+          total={replay.rounds.length}
+          round={state.round}
+          playing={playing}
+          busy={busy}
+          onBack={() => client.replayStep(-1)}
+          onToggle={() => (playing ? client.pause() : client.start())}
+          onForward={() => run(client.step())}
+          onExit={() => client.exitReplay()}
+        />
       )}
       <main className="workspace">
         <ExperimentControls
-          key={`${state.experimentId}-${JSON.stringify(state.config)}`}
+          key={`${state?.experimentId ?? "new"}-${JSON.stringify(config)}`}
           state={state}
+          config={config}
           busy={busy}
+          playing={playing}
           onControl={control}
           onApplySettings={applySettings}
+          onReplay={() => run(client.enterReplay())}
+          canReplay={canReplay}
+          replayActive={!!replay}
         />
         <div className="center-column">
-          <MarsGrid
-            key={`${state.experimentId}-${state.round === 0 ? "initial" : "active"}`}
-            state={state}
-            selected={selected}
-            onSelect={setSelected}
-          />
-          {state.winner && <SuccessSummary winner={state.winner} />}{" "}
-          {state.status === "failure" && (
-            <section className="failure-summary" role="status">
-              <h2>Experiment ended without a discovery</h2>
-              <p>
-                {state.failureReason ?? "No qualifying discovery was reported."}
-              </p>
+          {state ? (
+            <>
+              <MarsGrid
+                key={state.experimentId}
+                state={state}
+                selected={selection}
+                onSelect={setSelected}
+                groundTruth={groundTruth}
+                onReveal={() => client.revealGroundTruth()}
+                busy={busy}
+              />
+              {isTerminal(state) && (
+                <SuccessSummary
+                  state={state}
+                  busy={busy}
+                  onRetry={() => run(client.getResults())}
+                />
+              )}
+            </>
+          ) : (
+            <section className="map-section">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Exploration field</p>
+                  <h2>Create a seeded experiment</h2>
+                </div>
+                <span className="map-coordinate-label">
+                  {config.gridWidth} × {config.gridHeight} cells
+                </span>
+              </div>
+              <div className="map-placeholder">
+                <p>Choose your settings, then create the experiment.</p>
+                <span>
+                  The first round runs only when you select Play or Step.
+                </span>
+              </div>
             </section>
           )}
         </div>
         <aside className="right-rail">
-          <AgentList state={state} selected={selected} onSelect={setSelected} />
-          <InformationPool pool={state.pool} />
+          {state ? (
+            <>
+              <AgentList
+                state={state}
+                selected={selection}
+                onSelect={setSelected}
+              />
+              <InformationPool pool={state.pool} />
+            </>
+          ) : (
+            <>
+              <div className="rail-heading">
+                <h2>Agents</h2>
+              </div>
+              <p className="small muted">
+                Positions, budgets, and beliefs will appear after creation.
+              </p>
+            </>
+          )}
         </aside>
       </main>
-      <RecentEvents events={state.recentEvents} />
+      <RecentEvents events={state?.recentEvents ?? []} />
       <footer>
         <span>
-          MARS WATER SEARCH <span className="footer-divider">/</span> Research
+          MARS WATER SEARCH <span className="footer-divider">/</span>Research
           sandbox
         </span>
         <span>
-          {state.source === "demo"
-            ? "Scripted data · No live simulation"
-            : "Simulation data supplied by backend"}
+          Gemini agents · Local backend
           <span className="footer-dot" />
         </span>
       </footer>

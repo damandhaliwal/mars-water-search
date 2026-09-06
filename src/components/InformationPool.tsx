@@ -1,8 +1,8 @@
-import { Users, Sparkles } from "lucide-react";
+import { Users } from "lucide-react";
 import type { PoolState } from "../simulation/types";
 const kinds = {
-  observation: "OBSERVATION",
   human: "HUMAN INPUT",
+  observation: "OBSERVATION",
   drill: "DRILL RESULT",
   location: "LOCATION",
   belief: "BELIEF UPDATE",
@@ -23,7 +23,7 @@ export function InformationPool({ pool }: { pool: PoolState }) {
       <div className="pool-prize">
         <span>Potential prize / eligible member</span>
         <strong>
-          {pool.rewardPerMember === null
+          {pool.rewardPerMember == null
             ? "—"
             : pool.rewardPerMember.toLocaleString(undefined, {
                 maximumFractionDigits: 2,
@@ -53,42 +53,42 @@ export function InformationPool({ pool }: { pool: PoolState }) {
             </span>
           </div>
         ) : (
-          [...pool.events].reverse().map((e) => (
-            <article
-              key={e.id}
-              className={`pool-entry ${e.kind === "human" ? "human-entry" : ""}`}
-            >
-              <div className="entry-meta">
-                <span>R{String(e.sharedRound).padStart(2, "0")}</span>
-                <strong>{e.agentId}</strong>
-                <span>
-                  {e.kind === "human" && <Sparkles size={11} />} {kinds[e.kind]}
-                </span>
-              </div>
-              {e.position && (
-                <div className="entry-position">
-                  ({e.position.x}, {e.position.y})
+          pool.events
+            .filter((e) => e.kind !== "human")
+            .slice()
+            .reverse()
+            .map((e) => (
+              <article key={e.id} className="pool-entry">
+                <div className="entry-meta">
+                  <span>R{String(e.sharedRound).padStart(2, "0")}</span>
+                  <strong>{e.agentId}</strong>
+                  <span>{kinds[e.kind]}</span>
                 </div>
-              )}
-              <p>{e.summary}</p>
-              {e.confidence !== undefined && (
-                <span className="confidence">
-                  Advisor confidence {e.confidence.toFixed(2)}
-                </span>
-              )}
-              {e.observedRound < e.sharedRound && (
-                <span className="history-label">
-                  Acquired R{e.observedRound} · shared on joining R
-                  {e.sharedRound}
-                </span>
-              )}
-            </article>
-          ))
+                {e.position && (
+                  <div className="entry-position">
+                    ({e.position.x}, {e.position.y})
+                  </div>
+                )}
+                <p>{e.summary}</p>
+                {e.confidence != null && (
+                  <span className="confidence">
+                    Confidence {e.confidence.toFixed(2)}
+                  </span>
+                )}
+                {e.observedRound < e.sharedRound && (
+                  <span className="history-label">
+                    Acquired R{e.observedRound} · shared on joining R
+                    {e.sharedRound}
+                  </span>
+                )}
+              </article>
+            ))
         )}
       </div>
       <p className="pool-rule">
-        Evidence must be included before the winning round. Exhausted eligible
-        members keep their share.
+        Evidence must be included before the winning round. Inactive eligible
+        members keep their share. Human advice remains private and cannot enter
+        this pool.
       </p>
     </section>
   );

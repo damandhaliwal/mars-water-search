@@ -1,17 +1,10 @@
+import { isTerminal } from "../simulation/types";
 import type { ExperimentState } from "../simulation/types";
-const colors: Record<string, string> = {
-  A: "#a14f35",
-  B: "#466b86",
-  C: "#8b6086",
-  D: "#4a7966",
-};
-const labels = {
-  move: "Move",
-  observe: "Observe",
-  drill: "Drill",
-  join_pool: "Join pool",
-  ask_human: "Ask human",
-};
+import {
+  agentColor,
+  actionLabels,
+  regimeLabels,
+} from "../simulation/presentation";
 export function AgentList({
   state,
   selected,
@@ -39,7 +32,7 @@ export function AgentList({
         >
           <span
             className="agent-marker"
-            style={{ background: colors[a.id] ?? "#65748b" }}
+            style={{ background: agentColor(a.id) }}
           >
             {a.id}
           </span>
@@ -47,18 +40,18 @@ export function AgentList({
             <span className="agent-topline">
               <strong>{a.label}</strong>
               <span className={`membership ${a.collaborationStatus}`}>
-                {a.collaborationStatus === "pool" ? "In pool" : "Private"}
+                {regimeLabels[a.collaborationStatus]}
               </span>
             </span>
             <span className="agent-meta">
               ({a.position.x}, {a.position.y})<span>·</span>
-              {a.lastAction ? labels[a.lastAction] : "Ready"}
+              {a.lastAction ? actionLabels[a.lastAction] : "Ready"}
             </span>
             <span className="budget-track">
               <span
                 style={{
-                  width: `${Math.max(0, Math.min(100, (a.budgetRemaining / state.config.startingBudget) * 100))}%`,
-                  background: colors[a.id] ?? "#65748b",
+                  width: `${Math.max(0, Math.min(100, state.config.startingBudget > 0 ? (a.budgetRemaining / state.config.startingBudget) * 100 : 0))}%`,
+                  background: agentColor(a.id),
                 }}
               />
             </span>
@@ -68,8 +61,8 @@ export function AgentList({
                 <small> credits</small>
               </strong>
               <span className={a.canAffordDrill === false ? "low-budget" : ""}>
-                {a.activity === "exhausted"
-                  ? "Exhausted"
+                {a.activity === "inactive"
+                  ? "Inactive"
                   : a.canAffordDrill === false
                     ? "Cannot afford drill"
                     : a.canAffordDrill === true
@@ -77,7 +70,13 @@ export function AgentList({
                       : "Drill cost unknown"}
               </span>
             </span>
-            {a.activity === "exhausted" &&
+            {a.reason && <span className="agent-reason">{a.reason}</span>}
+            {isTerminal(state) && a.finalUtility != null && (
+              <span className="retained">
+                Final utility: {a.finalUtility.toFixed(2)}
+              </span>
+            )}
+            {a.activity === "inactive" &&
               state.pool.eligibleMemberIds.includes(a.id) && (
                 <span className="retained">Prize eligibility retained</span>
               )}

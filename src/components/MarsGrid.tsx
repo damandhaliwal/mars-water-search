@@ -1,39 +1,53 @@
 import { useId, useState } from "react";
 import { Eye, MapPin } from "lucide-react";
-import type { BeliefGrid, ExperimentState } from "../simulation/types";
+import { agentColor } from "../simulation/presentation";
+import { isTerminal } from "../simulation/types";
+import type {
+  BeliefGrid,
+  ExperimentState,
+  GroundTruth,
+} from "../simulation/types";
 
-const agentColors: Record<string, string> = {
-  A: "#a14f35",
-  B: "#466b86",
-  C: "#8b6086",
-  D: "#4a7966",
-};
 export function MarsGrid({
   state,
   selected,
   onSelect,
+  groundTruth,
+  onReveal,
+  busy,
 }: {
   state: ExperimentState;
   selected: string;
   onSelect: (id: string) => void;
+  groundTruth: GroundTruth | null;
+  onReveal: () => Promise<void>;
+  busy: boolean;
 }) {
   const [reveal, setReveal] = useState(false);
   const [cell, setCell] = useState<{ x: number; y: number } | null>(null);
   const gridId = useId();
   const agent = state.agents.find((a) => a.id === selected);
-  const truthVisible = reveal && !!state.groundTruth;
-  const belief: BeliefGrid | undefined = truthVisible
-    ? state.groundTruth?.intensity
+  const truthVisible = reveal && isTerminal(state) && !!groundTruth;
+  const belief: BeliefGrid | null | undefined = truthVisible
+    ? groundTruth?.intensity
     : selected === "pool"
       ? state.pool.belief
       : agent?.belief;
   const w = state.config.gridWidth,
     h = state.config.gridHeight;
+  // Keep symbols the same visual size when the configured cell count changes.
+  const symbolScale = w / 50;
   const matchingGrid =
     belief?.width === w && belief.height === h && belief.values.length === w * h
       ? belief
       : undefined;
   const value = cell ? matchingGrid?.values[cell.y * w + cell.x] : null;
+  const present = (matchingGrid?.values ?? []).filter(
+    (probability): probability is number => probability !== null,
+  );
+  const uniform =
+    present.length > 0 &&
+    Math.max(...present) - Math.min(...present) < 1e-9;
   const visibleMarkers = state.markers.filter(
     (m) =>
       truthVisible ||
@@ -50,7 +64,7 @@ export function MarsGrid({
             {truthVisible
               ? "Ground truth"
               : selected === "pool"
-                ? "Collective belief"
+                ? "Pool belief"
                 : `${agent?.label ?? "Agent"}’s belief`}
           </h2>
         </div>
@@ -70,31 +84,40 @@ export function MarsGrid({
               }}
             >
               <span
-                style={{ background: agentColors[a.id] ?? "#65748b" }}
+                style={{ background: agentColor(a.id) }}
                 className="tiny-dot"
               />
               {a.id}
             </button>
           ))}
-          <button
-            aria-pressed={selected === "pool" && !truthVisible}
-            onClick={() => {
-              onSelect("pool");
-              setReveal(false);
-            }}
-          >
-            Pool
-          </button>
+          {state.pool.memberIds.length > 0 && (
+            <button
+              aria-pressed={selected === "pool" && !truthVisible}
+              onClick={() => {
+                onSelect("pool");
+                setReveal(false);
+              }}
+            >
+              Pool
+            </button>
+          )}
         </div>
         <button
           className={`truth-button ${truthVisible ? "enabled" : ""}`}
-          disabled={!state.groundTruth}
+          disabled={busy || !isTerminal(state) || !state.groundTruthAvailable}
           title={
-            state.groundTruth
+            isTerminal(state) && state.groundTruthAvailable
               ? "Presenter-only intensity map"
-              : "Ground truth has not been supplied"
+              : "Ground truth is available after the experiment ends"
           }
-          onClick={() => setReveal(!reveal)}
+          onClick={() => {
+            if (truthVisible) setReveal(false);
+            else if (groundTruth) setReveal(true);
+            else
+              void onReveal()
+                .then(() => setReveal(true))
+                .catch(() => {});
+          }}
         >
           <Eye size={14} />
           {truthVisible ? "Hide truth" : "Reveal truth"}
@@ -108,9 +131,10 @@ export function MarsGrid({
         </div>
         <svg
           className="mars-map"
+          style={{ aspectRatio: `${w} / ${h}` }}
           viewBox={`0 0 ${w} ${h}`}
           role="img"
-          aria-label={`${truthVisible ? "Ground truth intensity" : selected === "pool" ? "Pool probability of a successful drill" : `${agent?.label} probability of a successful drill`}; ${w} by ${h} grid`}
+          aria-label={`${truthVisible ? "Ground truth intensity" : selected === "pool" ? "Pool belief score" : `${agent?.label} belief score`}; ${w} by ${h} grid`}
           onMouseMove={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setCell({
@@ -158,28 +182,28 @@ export function MarsGrid({
                 width="1"
                 height="1"
                 fill={truthVisible ? "#16768a" : "#174f64"}
-                opacity={probability * 0.82}
+                // Lifted base keeps flat priors clearly visible; null stays transparent.
+                opacity={0.16 + probability * 0.66}
               />
             ),
           )}
           <rect width={w} height={h} fill={`url(#${gridId})`} />
           {state.agents.map((a) => (
             <polyline
+              data-agent-path={a.id}
               key={a.id}
-              points={a.path
-                .map((p) => `${p.x + 0.5},${p.y + 0.5}`)
-                .join(" ")}
+              points={a.path.map((p) => `${p.x + 0.5},${p.y + 0.5}`).join(" ")}
               fill="none"
-              stroke={agentColors[a.id] ?? "#333"}
-              strokeWidth=".18"
-              strokeDasharray=".45 .35"
+              stroke={agentColor(a.id)}
+              strokeWidth={0.18 * symbolScale}
+              strokeDasharray={`${0.45 * symbolScale} ${0.35 * symbolScale}`}
               opacity=".85"
             />
           ))}
           {visibleMarkers.map((marker) => (
             <g
               key={marker.id}
-              transform={`translate(${marker.position.x + 0.5} ${marker.position.y + 0.5})`}
+              transform={`translate(${marker.position.x + 0.5} ${marker.position.y + 0.5}) scale(${symbolScale})`}
             >
               <title>
                 {marker.kind} at ({marker.position.x}, {marker.position.y})
@@ -206,7 +230,7 @@ export function MarsGrid({
             <g
               key={a.id}
               className="map-agent"
-              transform={`translate(${a.position.x + 0.5} ${a.position.y + 0.5})`}
+              transform={`translate(${a.position.x + 0.5} ${a.position.y + 0.5}) scale(${symbolScale})`}
               role="button"
               tabIndex={0}
               aria-label={`Select ${a.label}, position ${a.position.x}, ${a.position.y}`}
@@ -227,11 +251,18 @@ export function MarsGrid({
                 {a.budgetRemaining} credits
               </title>
               {selected === a.id && !truthVisible && (
-                <circle r="1.35" fill="none" stroke="white" strokeWidth=".15" />
+                <circle
+                  className="agent-selection"
+                  r="1.35"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth=".15"
+                />
               )}
               <circle
+                className="agent-body"
                 r=".94"
-                fill={agentColors[a.id] ?? "#65748b"}
+                fill={agentColor(a.id)}
                 stroke="white"
                 strokeWidth=".15"
               />
@@ -270,16 +301,21 @@ export function MarsGrid({
           <span>0</span>
           <div className="legend-ramp" />
           <span>1</span>
-          <span>
-            {truthVisible ? "Water intensity" : "P(successful drill)"}
-          </span>
+          <span>{truthVisible ? "Water intensity" : "Belief score"}</span>
         </div>
         <span className="cell-readout">
-          {cell
-            ? `(${cell.x}, ${cell.y}) · ${value == null ? "unknown" : value.toFixed(2)}`
-            : "Hover to inspect"}
+          {uniform
+            ? `Uniform belief · ${present[0].toFixed(2)} everywhere`
+            : cell
+              ? `(${cell.x}, ${cell.y}) · ${value == null ? "unknown" : value.toFixed(2)}`
+              : "Hover to inspect"}
         </span>
       </div>
+      {truthVisible && groundTruth && (
+        <p className="small muted">
+          Successful drill threshold: {groundTruth.successThreshold}
+        </p>
+      )}
       <div className="map-footnote">
         <MapPin size={14} />
         <span>
@@ -293,7 +329,7 @@ export function MarsGrid({
           <span className="small-label">
             {agent.latestInsight.source} · acquired R
             {agent.latestInsight.acquiredRound} ·{" "}
-            {agent.collaborationStatus === "pool"
+            {agent.collaborationStatus === "ai_pool"
               ? "Shared with pool"
               : "Private to " + agent.label}
           </span>

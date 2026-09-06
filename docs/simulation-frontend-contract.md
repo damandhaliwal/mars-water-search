@@ -1,129 +1,112 @@
-# Simulation ↔ frontend contract
+# Local simulation ↔ frontend contract
 
-This is a proposed **presentation boundary**, not Eduardo's backend API. The
-backend remains authoritative for world state, actions, costs, beliefs, sharing,
-eligibility, human advice, rewards, and termination. No Wolfram-specific types
-cross into React. The complete TypeScript shapes are in `src/simulation/types.ts`.
+This contract now connects the existing React/Vite frontend to the Python FastAPI
+backend. There is no Wolfram or scripted provider. The authoritative backend
+schemas are `backend/src/mars_agents/api/schemas.py`; the matching frontend types
+are `src/simulation/types.ts`. All JSON fields use camelCase.
 
-## 1. State snapshots
+## Transport and controls
 
-Supply complete, internally consistent **post-resolution round snapshots**:
+The frontend adapter is `src/simulation/BackendSimulationClient.ts`. Requests use
+`/api`; the Vite server proxies to BACKEND_URL (default http://127.0.0.1:8000).
+Both dev and preview bind to 127.0.0.1. No keys are stored in browser configuration.
 
-- Experiment ID, source (`backend`), status, resolved round, optional round limit.
-- Config: dimensions, agent count, starting budget, prize, optionally deposit count.
-  Omit deposit count if it is not authorized for this presenter.
-- Each agent: ID, label, position, remaining budget, accumulated cost, activity,
-  private/pool status, nullable last action, optional drill affordability, optional
-  belief raster, supplied movement path.
-- Pool membership, prize eligibility, the round that eligibility applies to,
-  provider-supplied potential share, supplied evidence board and optional belief.
-- Authorized map markers and activity events.
-- Optional authoritative winner and payouts or failure reason.
-- Optional explicitly authorized presenter-only ground truth.
+| Method and route | Operation |
+| --- | --- |
+| GET /api/health | Health, configured-key boolean, model ID; no key value. |
+| GET /api/config | Validated defaults, including advanced parameters. |
+| POST /api/experiments | Create seeded state from supplied settings; no model calls. |
+| GET /api/experiments/{id} | Latest presenter snapshot. |
+| POST /api/experiments/{id}/step | Advance one simultaneous round or pause for human input. |
+| POST /api/experiments/{id}/reset | Create a new experiment ID, preserving old checkpoints/logs. |
+| GET /api/experiments/{id}/human-requests | Current pending coarse-prior request. |
+| POST /api/experiments/{id}/human-responses | Validate requestId, x, y, optional note and resume. |
+| GET /api/experiments/{id}/results | Terminal {results, winner} with supplied payouts. |
+| POST /api/experiments/{id}/reveal-ground-truth | Explicit terminal-only intensity map. |
+| GET /api/experiments/{id}/replay | Every recorded round, oldest first. Read-only checkpoint history; never calls the model, charges budgets, or disturbs the live run. |
 
-The UI is a researcher/presenter console. Access to all agents' positions and
-beliefs does **not** mean agents or the human adviser may access this endpoint.
-Authorization belongs in the backend/transport. Hiding a layer in a browser is
-not access control. Never put private credentials or agent tools in this frontend.
+Play is a serial loop: request another step only after the previous finishes. Pause
+prevents further requests; an already executing round completes. The backend also
+rejects concurrent mutating operations on one experiment. Run a single backend
+worker; the application is a local research tool, not a multi-worker service.
 
-## 2. Control operations and lifecycle
+Missing GEMINI_API_KEY returns an explicit 503 on an attempted step, without
+changing the world. Invalid settings/responses return 422; conflicting round
+operations return 409; missing experiments return 404. No error path switches to
+a substitute policy. The browser may edit requested settings, but displays accepted
+backend configuration and never changes budgets, beliefs, membership, or rewards.
 
-`SimulationClient` provides async getExperimentState(), start(), pause(), step(),
-reset(config?), plus subscribe(callback) returning an unsubscribe function and dispose().
+## Snapshots and maps
 
-- Start resumes execution; repeated starts must not create multiple runners.
-- Pause acknowledges a stable boundary. The backend should specify how it handles
-  a round already in flight. The UI disables step during running.
-- Step resolves exactly one round. No agent decisions are made by the UI.
-- Reset returns a coherent initial snapshot; backend decides whether its reset
-  reuses the seed or starts a new experiment. Changing experimentId resets map UI.
-- The settings form starts with current configuration values. Apply & reset sends
-  the requested ExperimentConfig to reset(config). Validate it in the adapter/backend
-  before changing the run; reject unsupported values without changing current state.
-  Return the accepted configuration in the new snapshot. The UI never changes the
-  displayed world, budgets, or rewards optimistically. The scripted provider accepts
-  only its default configuration and explicitly rejects custom values.
-- Every successful control produces a subscription snapshot, including status-only
-  changes. Consumers subscribe before requesting the initial state.
-- Adapter must discard stale/out-of-order transport updates (using backend revision
-  IDs) and avoid letting a late initial fetch overwrite a newer subscription state.
-- Unsubscribe removes listeners. Dispose closes sockets, timers and other resources.
-- Surface command errors. Do not imply success or substitute mock results on error.
+Snapshots contain completed round number, status, accepted config, agent positions,
+budgets, regimes, paths, beliefs, recent events, pool board, and optional results.
+Statuses are idle, paused, awaiting_human, awaiting_api, success, failure; running playback is
+also represented by the frontend's control state.
 
-For long-running connections, agree reconnect/status semantics with Eduardo before
-implementation. Add connection status to the contract if needed; never label a
-disconnected cached snapshot live. Backend mutations should be idempotent so
-network retries cannot duplicate charged actions.
+BeliefGrid = {width, height, values}, row-major index y * width + x. Coordinates are
+zero-based, x rightward, y downward. Values are bounded scores interpreted as
+simplified drill-success beliefs, not calibrated probabilities. null can represent
+unavailable cells in the frontend. The backend supplies the pool belief; the UI
+never averages or infers it. Ground-truth water intensity is a distinct quantity.
 
-## 3. Events and visibility
+Agent regimes are private, ai_pool, human_assisted. Actions are move, observe, drill,
+join_ai_pool, choose_human. A persistently invalid model choice is an invalid_decision
+event, not a WAIT action. Provider failures pause the pending round without a rover action. Pool and human membership cannot be combined. Low budget and
+inactivity are distinct: a zero-budget private agent may still join a free pool.
 
-ExperimentEvent includes stable id, round, optional actor/action, and summary.
-PoolEvent includes stable id, original evidenceId, contributor, kind, acquisition
-round, sharing round, optional location, summary and optional confidence.
+## Sharing, eligibility, and outputs
 
-Evidence kinds: observation, human, drill, location, belief. Keep confidence
-semantics in the text: advisor confidence is not automatically P(successful drill).
+Pool events retain source agent, original evidence ID, acquisition round, and
+sharing round. Historical evidence is contributed upon joining and future member
+evidence is automatic. No human evidence is shared. Members use the backend pool
+belief; a private agent has no access to its contents.
 
-Order the shared log by sharing round, preserving provider order for ties. Old
-evidence shared upon joining retains its original acquisition round and evidenceId.
-The adapter/backend de-duplicates forwarded evidence; the UI never chooses which
-evidence is relevant, shared, or independent. Future relevant member evidence
-automatically appears when the backend supplies it, including human guidance.
-Private human responses stay out of the pool until the backend explicitly shares
-them. Their costs always remain with the requesting agent.
+Member IDs and eligible IDs remain separate fields. During an ongoing episode,
+eligibilityRound normally denotes the upcoming round. At termination it denotes
+the resolved round; same-round joiners are absent from its eligible set. Final
+payouts are authoritative and include reward, individual cost, utility, and regime.
+The frontend only rounds numbers for display.
 
-The recent activity strip is presenter-visible data and must never be reused as
-an agent's observation history. Markers and paths likewise require backend
-authorization; viewing a marker is not a new sensor reading.
+## Human interruption
 
-## 4. Belief representation
+LangGraph prepares requests without charging and interrupts before resolution.
+Each request has a stable ID, requesting agent, round, committed cost, coarse prior,
+and full-world dimensions. The adviser overlay shows only this coarse prior and
+obscures the mission view. The selection maps to world coordinates; the server
+derives its confidence from the coarse cell, not caller-provided confidence.
 
-BeliefGrid is width, height and a flat row-major values array:
-`values[y * width + x]`. Length must equal width × height. Values are probabilities
-in [0,1]; null means unknown/unavailable, not zero. Coordinates are zero-based,
-x increases right, y down. Adapter must translate Wolfram indexing/orientation.
+A response resumes the same graph checkpoint. Multiple pending requests are
+presented sequentially. Graph-node replay has no side effects before interrupt;
+costs and evidence settle once after all responses are valid. Advice becomes usable
+in the next round and remains private forever. Simulated advice uses the same
+imperfect prior and bypasses only the user interaction, not the cost/regime rules.
 
-For agent maps, probability means P(W(x,y) >= success threshold | available evidence).
-The pool raster is optional and is provided by the backend. The frontend neither
-averages agent maps nor computes a posterior. It shows a clear unavailable state
-if no raster is supplied. The adapter must validate finite, bounded values and
-dimensions; components do not perform statistical repair or inference.
+## Information boundaries
 
-## 5. Membership, eligibility, and payouts
+Full presenter state is not an AgentView. The backend separately constructs each
+model's compact allowlist: its position/budget/costs, legal actions, concise own
+history, belief summary, and authorized pool or bounded human evidence. No model
+receives world truth, adviser raster, other private evidence, or current-round
+proposals. The human-request endpoint never contains truth. The ordinary state
+endpoint contains no truth, even after termination; revealing requires a separate
+request. Local evaluator logs and checkpoints are privileged and are not served
+as browser assets.
 
-Membership persists. Sharing historical information on joining makes it available
-for the next round. Eligibility for a winning round requires inclusion in the
-collective belief **at the start of that round**. A same-round join does not qualify.
+These controls assume a trusted local experimenter. The local server does not
+provide multi-user authentication; do not expose it on a network or give agents
+HTTP tools that can reach presenter/evaluator endpoints.
 
-`eligibleMemberIds` is distinct from memberIds. `eligibilityRound` explicitly says
-which round the eligibility list applies to (normally the next round for ongoing
-post-round snapshots, the winning round for a final snapshot). Backend supplies
-rewardPerMember; the UI does not derive it from current membership.
+## API interruptions
 
-An exhausted agent cannot act but retains its established prize entitlement. Final
-WinnerState includes the winning actor, private/pool status, location, recipients,
-prize, per-recipient amount, and reward/cost/utility for every agent. Display these
-exact supplied values with presentation rounding only. Simultaneous discoveries
-remain a backend policy; do not have the frontend arbitrate them.
+GET and Step snapshots use status=awaiting_api and providerFailure containing
+message, agentIds, retryAt (Unix seconds, optional), and failures with agentId,
+category, and optional httpStatus. Categories distinguish rate limits, quota
+exhaustion, service outages, timeouts, connection errors, and rejected requests.
+The message is assembled from safe fields; raw provider errors are never returned.
 
-## 6. Ground truth
-
-Optional groundTruth includes a water-intensity raster and success threshold.
-Intensity is a physical world quantity, not an agent probability. The UI labels
-this layer separately and requires explicit reveal. The demo only supplies it
-after success. Production may omit it entirely. Do not send seeds, hidden maps,
-or generation parameters to any unauthorized client.
-
-## 7. Transport choices and connection point
-
-Implement `createBackendSimulationClient()` in BackendSimulationClient.ts and
-select it with VITE_SIMULATION_MODE=backend. React components remain unchanged.
-
-HTTP commands plus SSE snapshots, WebSocket messages, HTTP polling, or a local
-Wolfram process bridge are all possible. A polling adapter must expose the same
-subscription interface and serialize/discard overlapping responses appropriately.
-Do not invent endpoints before agreeing them with Eduardo. Browser clients cannot
-directly spawn local processes; a process bridge would live outside this frontend.
-
-This repository intentionally ships no backend transport, world generation,
-agent reasoning, sensor model, Bayesian update, reward authority, or live human UI.
+The completed round, positions, budgets, and events remain unchanged. Playback
+stops. After retryAt, the user can retry the pending round with the existing Step
+endpoint. A premature Step returns the same pause without calling Gemini. Accepted
+proposals remain checkpointed; only unfinished agents are requested again. A
+successful resume clears providerFailure and may proceed to a human interruption.
+Refreshing or restarting the backend preserves the pending round.
