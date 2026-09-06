@@ -29,7 +29,7 @@ not access control. Never put private credentials or agent tools in this fronten
 ## 2. Control operations and lifecycle
 
 `SimulationClient` provides async getExperimentState(), start(), pause(), step(),
-reset(), plus subscribe(callback) returning an unsubscribe function and dispose().
+reset(config?), plus subscribe(callback) returning an unsubscribe function and dispose().
 
 - Start resumes execution; repeated starts must not create multiple runners.
 - Pause acknowledges a stable boundary. The backend should specify how it handles
@@ -37,6 +37,12 @@ reset(), plus subscribe(callback) returning an unsubscribe function and dispose(
 - Step resolves exactly one round. No agent decisions are made by the UI.
 - Reset returns a coherent initial snapshot; backend decides whether its reset
   reuses the seed or starts a new experiment. Changing experimentId resets map UI.
+- The settings form starts with current configuration values. Apply & reset sends
+  the requested ExperimentConfig to reset(config). Validate it in the adapter/backend
+  before changing the run; reject unsupported values without changing current state.
+  Return the accepted configuration in the new snapshot. The UI never changes the
+  displayed world, budgets, or rewards optimistically. The scripted provider accepts
+  only its default configuration and explicitly rejects custom values.
 - Every successful control produces a subscription snapshot, including status-only
   changes. Consumers subscribe before requesting the initial state.
 - Adapter must discard stale/out-of-order transport updates (using backend revision

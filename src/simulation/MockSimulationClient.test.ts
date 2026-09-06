@@ -75,6 +75,16 @@ describe("scripted experiment contract", () => {
   });
 });
 describe("fixture playback", () => {
+  it("rejects unsupported settings without altering the run and accepts defaults", async () => {
+    const client = new MockSimulationClient();
+    await client.step();
+    const before = await client.getExperimentState();
+    await expect(client.reset({...before.config, numberOfAgents: 6})).rejects.toThrow("default settings");
+    expect(await client.getExperimentState()).toEqual(before);
+    await client.reset(before.config);
+    expect((await client.getExperimentState()).round).toBe(0);
+    client.dispose();
+  });
   it("steps once, emits a snapshot, and protects internal state from consumers", async () => {
     const client = new MockSimulationClient();
     const listener = vi.fn();

@@ -12,10 +12,21 @@ npm install
 npm run dev
 ```
 
-Open the local URL printed by Vite. Run experiment plays nine predefined rounds;
+Open the local URL printed by Vite.
+Both development and production-preview servers bind to `127.0.0.1` only,
+so other devices on the same network cannot connect directly. Keep these host
+settings; do not override them with `--host 0.0.0.0` or expose the server through
+a tunnel or reverse proxy. This project has not been deployed to a hosting service.
+
+Run experiment plays nine predefined rounds;
 Step advances one round; Pause stops playback; Reset returns to identical priors.
 Select an agent or Pool to change the displayed belief. Ground truth is only
 supplied at the final frame and must be explicitly revealed by the presenter.
+
+Experiment settings are editable and prefilled with the current values. Apply &
+reset passes them to the provider. Custom settings require Eduardo's backend;
+the fixed demo rejects them without changing the run. Restore current values
+discards edits. Settings are disabled during playback.
 
 ```sh
 npm run lint

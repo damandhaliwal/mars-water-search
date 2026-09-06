@@ -1,4 +1,4 @@
-import type { ExperimentState } from "./types";
+import type { ExperimentConfig, ExperimentState } from "./types";
 
 export type Unsubscribe = () => void;
 export interface SimulationClient {
@@ -6,7 +6,7 @@ export interface SimulationClient {
   start(): Promise<void>;
   pause(): Promise<void>;
   step(): Promise<void>;
-  reset(): Promise<void>;
+  reset(config?: ExperimentConfig): Promise<void>;
   subscribe(callback: (state: ExperimentState) => void): Unsubscribe;
   dispose(): void;
 }

@@ -1,6 +1,6 @@
 import { createDemoFrames } from "./demo";
 import type { SimulationClient } from "./SimulationClient";
-import type { ExperimentState } from "./types";
+import type { ExperimentConfig, ExperimentState } from "./types";
 
 /** A fixture player only. Advancing selects the next authored snapshot. */
 export class MockSimulationClient implements SimulationClient {
@@ -53,7 +53,13 @@ export class MockSimulationClient implements SimulationClient {
     this.stopTimer();
     this.advance();
   }
-  async reset() {
+  async reset(config?: ExperimentConfig) {
+    const defaults = this.frames[0].config;
+    if (config && (Object.keys(defaults) as (keyof ExperimentConfig)[]).some(
+      key => config[key] !== defaults[key],
+    )) {
+      throw new Error("This scripted demo supports only the default settings. Custom experiments require the simulation backend. Your current run has not changed.");
+    }
     this.stopTimer();
     this.index = 0;
     this.state = structuredClone(this.frames[0]);

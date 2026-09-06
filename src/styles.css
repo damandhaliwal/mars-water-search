@@ -982,3 +982,16 @@ footer > span:first-child {
   line-height: 1.65;
   margin-top: 7px;
 }
+
+.settings-fields { border: 0; padding: 0; margin: 18px 0 12px; min-width: 0; }
+.settings-field { display: block; margin-bottom: 12px; }
+.settings-field > span { display: block; font-size: 12px; color: #71777d; margin-bottom: 6px; }
+.settings-field input { width: 100%; min-width: 0; border: 1px solid #d6dadc; border-radius: 4px; background: white; padding: 8px 10px; color: #2c3135; font: 14px var(--mono); }
+.settings-field input:focus-visible { outline: 2px solid #26768e; outline-offset: 2px; }
+.settings-field input:disabled { background: #edefef; color: #737a81; }
+.settings-help { margin-top: 8px; }
+@media (max-width: 600px) {
+  .settings-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .settings-field { margin: 0; }
+  .settings > .settings-help { display: block; }
+}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Radio } from "lucide-react";
 import type { SimulationClient } from "./simulation/SimulationClient";
-import type { ExperimentState } from "./simulation/types";
+import type { ExperimentConfig, ExperimentState } from "./simulation/types";
 import { ExperimentControls } from "./components/ExperimentControls";
 import { MarsGrid } from "./components/MarsGrid";
 import { AgentList } from "./components/AgentList";
@@ -45,6 +45,18 @@ export default function App({ client }: { client: SimulationClient }) {
       if (command === "reset") setSelected("A");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Experiment control failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function applySettings(config: ExperimentConfig) {
+    setBusy(true);
+    setError(null);
+    try {
+      await client.reset(config);
+      setSelected("A");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to apply settings.");
     } finally {
       setBusy(false);
     }
@@ -94,7 +106,13 @@ export default function App({ client }: { client: SimulationClient }) {
         </div>
       )}
       <main className="workspace">
-        <ExperimentControls state={state} busy={busy} onControl={control} />
+        <ExperimentControls
+          key={`${state.experimentId}-${JSON.stringify(state.config)}`}
+          state={state}
+          busy={busy}
+          onControl={control}
+          onApplySettings={applySettings}
+        />
         <div className="center-column">
           <MarsGrid
             key={`${state.experimentId}-${state.round === 0 ? "initial" : "active"}`}

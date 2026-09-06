@@ -1,15 +1,34 @@
 import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
-import type { ExperimentState } from "../simulation/types";
+import { useState } from "react";
+import type { ExperimentConfig, ExperimentState } from "../simulation/types";
 
 export function ExperimentControls({
   state,
   busy,
   onControl,
+  onApplySettings,
 }: {
   state: ExperimentState;
   busy: boolean;
   onControl: (command: "start" | "pause" | "step" | "reset") => void;
+  onApplySettings: (config: ExperimentConfig) => Promise<void>;
 }) {
+  const [draft, setDraft] = useState(() => ({
+    gridWidth: String(state.config.gridWidth),
+    gridHeight: String(state.config.gridHeight),
+    numberOfAgents: String(state.config.numberOfAgents),
+    numberOfWaterDeposits: state.config.numberOfWaterDeposits === undefined ? "" : String(state.config.numberOfWaterDeposits),
+    startingBudget: String(state.config.startingBudget),
+    discoveryReward: String(state.config.discoveryReward),
+  }));
+  const fields = [
+    { key: "gridWidth", label: "Grid width", min: 1, step: 1 },
+    { key: "gridHeight", label: "Grid height", min: 1, step: 1 },
+    { key: "numberOfAgents", label: "Agents", min: 1, step: 1 },
+    { key: "numberOfWaterDeposits", label: "Deposits", min: 1, max: 2, step: 1 },
+    { key: "startingBudget", label: "Budget / agent", min: 0.01, step: "any" },
+    { key: "discoveryReward", label: "Discovery prize", min: 0, step: "any" },
+  ] as const;
   const terminal = state.status === "success" || state.status === "failure";
   return (
     <aside className="experiment-controls">
@@ -49,34 +68,45 @@ export function ExperimentControls({
         <RotateCcw size={14} />
         Reset experiment
       </button>
-      <div className="settings">
+      <form className="settings" onSubmit={(event) => {
+        event.preventDefault();
+        const config: ExperimentConfig = {
+          gridWidth: Number(draft.gridWidth),
+          gridHeight: Number(draft.gridHeight),
+          numberOfAgents: Number(draft.numberOfAgents),
+          numberOfWaterDeposits: draft.numberOfWaterDeposits === "" ? undefined : Number(draft.numberOfWaterDeposits),
+          startingBudget: Number(draft.startingBudget),
+          discoveryReward: Number(draft.discoveryReward),
+        };
+        void onApplySettings(config);
+      }}>
         <p className="eyebrow">Experiment settings</p>
-        <dl>
-          <div>
-            <dt>Grid</dt>
-            <dd>
-              {state.config.gridWidth} × {state.config.gridHeight}
-            </dd>
-          </div>
-          <div>
-            <dt>Agents</dt>
-            <dd>{state.config.numberOfAgents}</dd>
-          </div>
-          <div>
-            <dt>Deposits</dt>
-            <dd>{state.config.numberOfWaterDeposits ?? "Undisclosed"}</dd>
-          </div>
-          <div>
-            <dt>Budget / agent</dt>
-            <dd>{state.config.startingBudget}</dd>
-          </div>
-          <div>
-            <dt>Discovery prize</dt>
-            <dd>{state.config.discoveryReward.toLocaleString()}</dd>
-          </div>
-        </dl>
+        <fieldset disabled={busy || state.status === "running"} className="settings-fields">
+          {fields.map(field => <label key={field.key} className="settings-field">
+            <span>{field.label}</span>
+            <input
+              type="number"
+              name={field.key}
+              min={field.min}
+              max={"max" in field ? field.max : undefined}
+              step={field.step}
+              required={field.key !== "numberOfWaterDeposits"}
+              placeholder={field.key === "numberOfWaterDeposits" ? "Unspecified" : undefined}
+              value={draft[field.key]}
+              onChange={event => setDraft(previous => ({...previous, [field.key]: event.target.value}))}
+            />
+          </label>)}
+          <button type="submit" className="secondary-button">Apply &amp; reset</button>
+          <button type="button" className="text-button" onClick={() => setDraft({
+            gridWidth: String(state.config.gridWidth), gridHeight: String(state.config.gridHeight),
+            numberOfAgents: String(state.config.numberOfAgents),
+            numberOfWaterDeposits: state.config.numberOfWaterDeposits === undefined ? "" : String(state.config.numberOfWaterDeposits),
+            startingBudget: String(state.config.startingBudget), discoveryReward: String(state.config.discoveryReward),
+          })}>Restore current values</button>
+        </fieldset>
         <p className="small muted">Costs and rewards in experiment credits.</p>
-      </div>
+        <p className="small muted settings-help">{state.source === "demo" ? "Custom settings require the backend. This demo plays the default setup only." : "Apply starts a fresh experiment. Pause before changing settings."}</p>
+      </form>
       <div className="experiment-note">
         <span className="small-label">The decision</span>
         <p>
