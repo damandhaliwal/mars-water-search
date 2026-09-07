@@ -65,7 +65,7 @@ test("@local-backend creates and resets actual experiments without a key or agen
   expect(reset.experimentId).not.toBe(created.experimentId);
   await expect(
     page.getByRole("button", { name: "Reveal truth" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await expect(page.getByLabel("Human quality")).toHaveValue("0.7");
   expect(errors).toEqual([]);
   await page.screenshot({ path: "/tmp/mars-live-backend.png", fullPage: true });

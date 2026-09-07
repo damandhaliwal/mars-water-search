@@ -84,6 +84,7 @@ class MarkerSnapshot(ResponseModel):
     agent_id: str
     position: Position
     kind: Literal["observe", "dry", "water"]
+    value: float | None = None
 
 
 class Payout(ResponseModel):

@@ -22,7 +22,7 @@ Both dev and preview bind to 127.0.0.1. No keys are stored in browser configurat
 | GET /api/experiments/{id}/human-requests | Current pending coarse-prior request. |
 | POST /api/experiments/{id}/human-responses | Validate requestId, x, y, optional note and resume. |
 | GET /api/experiments/{id}/results | Terminal {results, winner} with supplied payouts. |
-| POST /api/experiments/{id}/reveal-ground-truth | Explicit terminal-only intensity map. |
+| POST /api/experiments/{id}/reveal-ground-truth | Explicit presenter intensity map; live in simulated mode, terminal-only in interactive mode. |
 | GET /api/experiments/{id}/replay | Every recorded round, oldest first. Read-only checkpoint history; never calls the model, charges budgets, or disturbs the live run. |
 
 Play is a serial loop: request another step only after the previous finishes. Pause
@@ -48,6 +48,16 @@ zero-based, x rightward, y downward. Values are bounded scores interpreted as
 simplified drill-success beliefs, not calibrated probabilities. null can represent
 unavailable cells in the frontend. The backend supplies the pool belief; the UI
 never averages or infers it. Ground-truth water intensity is a distinct quantity.
+
+Initial prior uses the accepted config's priorProbability, constant over the grid.
+Beliefs default to a clearly labeled min/max color scale; the fixed 0–1 scale is
+selectable. Uniform priors have no preferred target. The crosshair marks the first
+highest-scoring cell if tied; it does not represent an agent's planned action.
+Marker values are measured scan signals or exact drill intensities. Water view
+uses a fixed 0–1 scale and outlines all cells meeting successThreshold.
+A revealed simulated-run water map persists across rounds but clears on reset.
+Interactive human mode blocks revelation until termination, including before an
+adviser interruption; the adviser view continues to replace the presenter DOM.
 
 Agent regimes are private, ai_pool, human_assisted. Actions are move, observe, drill,
 join_ai_pool, choose_human. A persistently invalid model choice is an invalid_decision

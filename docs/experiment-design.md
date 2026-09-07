@@ -94,7 +94,32 @@ the pending UI shows the consultation commitment. New advice is usable next roun
 ## Decision control and measurement
 
 Each rover uses smolagents.ToolCallingAgent with Gemini Flash and only its legal
-action tools. Tools construct ActionProposal objects; they cannot mutate the world.
+action tools. The system prompt is an economic decision sheet rendered from the
+episode configuration, and each round prepends Python-computed consequences for
+that rover's legal actions (remaining budget, budget afterward, pool size and
+share if it joins). A leading search procedure encourages cautious local gradient
+ascent on measured signals, neighborhood confirmation, and a drilling reserve.
+The default sensor noise standard deviation is 0.05. Rovers are told readings are
+noisy, but neither the noise magnitude nor individual noise draws is supplied in
+any model input. After three distinct nearby sampled cells produce no promising
+signal or credible improvement, the prompt directs the rover to leave that local
+area with a larger affordable move or reconsider its strategy. Moves and repeated
+measurements at one coordinate do not count as new grid points; productive
+rising gradients and near-threshold dry drills still warrant local refinement.
+On the existing 20-seed fixed-location test, lowering sensor noise reverses the
+human-versus-sensor mean squared error ordering: local sensor estimates become
+more accurate than the coarse human prior. Human advice still provides regional
+coverage; the prompt makes no guarantee of superior local accuracy.
+A bounded search_context retains the three strongest distinct observations and
+three strongest positive drills across authorized history, nearby measurements,
+untested probes with travel/observe/drill costs, and pool-only member resources.
+Zero-intensity drills remain visible as contradictions at scan leads. Sensor and
+drill intensities are kept separate. The underlying belief updater is unchanged:
+it can rank untouched prior cells above informative readings below 0.5, so the
+prompt explicitly cautions against blindly following that ranking. These are
+strategy instructions and evidence summaries, not a replacement action policy;
+Gemini still chooses every action. Success improvements require live evaluation.
+Tools construct ActionProposal objects; they cannot mutate the world.
 An independent collector accepts at most one action. Invalid/no/multiple tool calls
 receive at most two correction retries. A persistent invalid model choice is an
 invalid_decision, costs no invented action, and loses the round.

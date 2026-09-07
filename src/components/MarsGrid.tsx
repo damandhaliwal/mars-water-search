@@ -1,7 +1,6 @@
 import { useId, useState } from "react";
 import { Eye, MapPin } from "lucide-react";
 import { agentColor } from "../simulation/presentation";
-import { isTerminal } from "../simulation/types";
 import type {
   BeliefGrid,
   ExperimentState,
@@ -24,11 +23,19 @@ export function MarsGrid({
   busy: boolean;
 }) {
   const [reveal, setReveal] = useState(false);
+  const [showPrior, setShowPrior] = useState(false);
+  const [showPaths, setShowPaths] = useState(true);
+  const [relativeScale, setRelativeScale] = useState(true);
   const [cell, setCell] = useState<{ x: number; y: number } | null>(null);
   const gridId = useId();
   const agent = state.agents.find((a) => a.id === selected);
-  const truthVisible = reveal && isTerminal(state) && !!groundTruth;
-  const belief: BeliefGrid | null | undefined = truthVisible
+  const truthVisible = reveal && state.groundTruthAvailable && !!groundTruth;
+  const prior = typeof state.config.priorProbability === "number"
+    ? state.config.priorProbability : null;
+  const belief: BeliefGrid | null | undefined = showPrior && prior !== null
+    ? { width: state.config.gridWidth, height: state.config.gridHeight,
+        values: Array(state.config.gridWidth * state.config.gridHeight).fill(prior) }
+    : truthVisible
     ? groundTruth?.intensity
     : selected === "pool"
       ? state.pool.belief
@@ -51,17 +58,34 @@ export function MarsGrid({
   const visibleMarkers = state.markers.filter(
     (m) =>
       truthVisible ||
-      (selected === "pool"
+      (selected === "pool" || agent?.collaborationStatus === "ai_pool"
         ? state.pool.memberIds.includes(m.agentId)
         : m.agentId === selected),
   );
+  const minimum = present.length ? Math.min(...present) : 0;
+  const maximum = present.length ? Math.max(...present) : 1;
+  const scaled = relativeScale && !truthVisible && !uniform;
+  const low = scaled ? minimum : 0;
+  const high = scaled ? maximum : 1;
+  const peakIndex = matchingGrid?.values.findIndex((v) => v === maximum) ?? -1;
+  const peak = peakIndex >= 0 && (!uniform || truthVisible)
+    ? { x: peakIndex % w, y: Math.floor(peakIndex / w) } : null;
+  const strongest = visibleMarkers.filter((m) => m.kind === "observe" && m.value != null)
+    .sort((a, b) => b.value! - a.value!)[0];
+  const waterCells = truthVisible ? matchingGrid?.values.filter(
+    (v) => v != null && v >= groundTruth!.successThreshold).length ?? 0 : 0;
+  const color = (v: number) => {
+    const t = Math.max(0, Math.min(1, (v - low) / (high - low || 1)));
+    // Opaque sequential colors: no blending into the terrain background.
+    return `rgb(${Math.round(242 - t * 222)}, ${Math.round(246 - t * 151)}, ${Math.round(250 - t * 123)})`;
+  };
   return (
     <section className="map-section" aria-label="Mars exploration map">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Exploration field</p>
           <h2>
-            {truthVisible
+            {showPrior ? "Initial prior" : truthVisible
               ? "Ground truth"
               : selected === "pool"
                 ? "Pool belief"
@@ -77,10 +101,11 @@ export function MarsGrid({
           {state.agents.map((a) => (
             <button
               key={a.id}
-              aria-pressed={selected === a.id && !truthVisible}
+              aria-pressed={selected === a.id && !truthVisible && !showPrior}
               onClick={() => {
                 onSelect(a.id);
                 setReveal(false);
+                setShowPrior(false);
               }}
             >
               <span
@@ -92,10 +117,11 @@ export function MarsGrid({
           ))}
           {state.pool.memberIds.length > 0 && (
             <button
-              aria-pressed={selected === "pool" && !truthVisible}
+              aria-pressed={selected === "pool" && !truthVisible && !showPrior}
               onClick={() => {
                 onSelect("pool");
                 setReveal(false);
+                setShowPrior(false);
               }}
             >
               Pool
@@ -103,14 +129,21 @@ export function MarsGrid({
           )}
         </div>
         <button
+          className="prior-button"
+          aria-pressed={showPrior}
+          disabled={prior === null}
+          onClick={() => { setShowPrior(!showPrior); setReveal(false); }}
+        >Initial prior</button>
+        <button
           className={`truth-button ${truthVisible ? "enabled" : ""}`}
-          disabled={busy || !isTerminal(state) || !state.groundTruthAvailable}
+          disabled={busy || !state.groundTruthAvailable}
           title={
-            isTerminal(state) && state.groundTruthAvailable
+            state.groundTruthAvailable
               ? "Presenter-only intensity map"
-              : "Ground truth is available after the experiment ends"
+              : "Interactive adviser runs reveal water after the experiment ends"
           }
           onClick={() => {
+            setShowPrior(false);
             if (truthVisible) setReveal(false);
             else if (groundTruth) setReveal(true);
             else
@@ -123,6 +156,16 @@ export function MarsGrid({
           {truthVisible ? "Hide truth" : "Reveal truth"}
         </button>
       </div>
+      <div className="map-summary" aria-label="Map summary">
+        <div><span>Shared starting prior</span><strong>{prior === null ? "Unavailable" : prior.toFixed(3)}</strong><small>Same score at every cell</small></div>
+        <div><span>{truthVisible ? "Peak water intensity" : "Current belief range"}</span><strong>{truthVisible ? maximum.toFixed(3) : `${minimum.toFixed(3)} – ${maximum.toFixed(3)}`}</strong><small>{truthVisible && peak ? `Peak at (${peak.x}, ${peak.y})` : uniform ? "Flat map · no preferred target" : "Relative confidence, not probability"}</small></div>
+        <div><span>{truthVisible ? "Drillable water" : "Strongest measured scan"}</span><strong>{truthVisible ? `${waterCells} cells` : strongest ? strongest.value!.toFixed(3) : "No scans"}</strong><small>{truthVisible ? `Intensity ≥ ${groundTruth!.successThreshold}` : strongest ? `At (${strongest.position.x}, ${strongest.position.y}) · noisy signal` : "Observe to gather evidence"}</small></div>
+      </div>
+      <div className="map-display-options">
+        <label><input type="checkbox" checked={showPaths} onChange={(e) => setShowPaths(e.target.checked)} /> Rover paths</label>
+        <label><input type="checkbox" checked={relativeScale} disabled={truthVisible || showPrior} onChange={(e) => setRelativeScale(e.target.checked)} /> Enhance belief contrast</label>
+        <span>{truthVisible ? "Cyan outline = successful drill zone" : showPrior ? "Initial prior · fixed baseline" : "Crosshair = highest belief, not confirmed water"}</span>
+      </div>
       <div className={`map-frame ${truthVisible ? "truth-mode" : ""}`}>
         <div className="axis-top">
           <span>00</span>
@@ -134,7 +177,7 @@ export function MarsGrid({
           style={{ aspectRatio: `${w} / ${h}` }}
           viewBox={`0 0 ${w} ${h}`}
           role="img"
-          aria-label={`${truthVisible ? "Ground truth intensity" : selected === "pool" ? "Pool belief score" : `${agent?.label} belief score`}; ${w} by ${h} grid`}
+          aria-label={`${showPrior ? "Initial prior" : truthVisible ? "Ground truth intensity" : selected === "pool" ? "Pool belief score" : `${agent?.label} belief score`}; ${w} by ${h} grid`}
           onMouseMove={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setCell({
@@ -166,13 +209,13 @@ export function MarsGrid({
               <path
                 d="M 1 0 L 0 0 0 1"
                 fill="none"
-                stroke="#845438"
+                stroke="#738899"
                 strokeWidth=".035"
-                opacity=".3"
+                opacity=".22"
               />
             </pattern>
           </defs>
-          <rect width={w} height={h} fill="#dfb296" />
+          <rect width={w} height={h} fill="#f2f6fa" />
           {matchingGrid?.values.map((probability, i) =>
             probability === null ? null : (
               <rect
@@ -181,14 +224,15 @@ export function MarsGrid({
                 y={Math.floor(i / w)}
                 width="1"
                 height="1"
-                fill={truthVisible ? "#16768a" : "#174f64"}
-                // Lifted base keeps flat priors clearly visible; null stays transparent.
-                opacity={0.16 + probability * 0.66}
+                fill={color(probability)}
+                data-water-cell={truthVisible && probability >= groundTruth!.successThreshold ? "true" : undefined}
+                stroke={truthVisible && probability >= groundTruth!.successThreshold ? "#25e5dc" : "none"}
+                strokeWidth=".12"
               />
             ),
           )}
           <rect width={w} height={h} fill={`url(#${gridId})`} />
-          {state.agents.map((a) => (
+          {showPaths && state.agents.map((a) => (
             <polyline
               data-agent-path={a.id}
               key={a.id}
@@ -197,16 +241,23 @@ export function MarsGrid({
               stroke={agentColor(a.id)}
               strokeWidth={0.18 * symbolScale}
               strokeDasharray={`${0.45 * symbolScale} ${0.35 * symbolScale}`}
-              opacity=".85"
+              opacity={selected === a.id ? 0.9 : 0.25}
             />
           ))}
-          {visibleMarkers.map((marker) => (
+          {peak && !showPrior && (
+            <g data-map-target="peak" transform={`translate(${peak.x + 0.5} ${peak.y + 0.5}) scale(${symbolScale})`}>
+              <title>{truthVisible ? "Water peak" : "Highest belief"} at ({peak.x}, {peak.y}): {maximum.toFixed(3)}</title>
+              <circle r="1.45" fill="none" stroke="#fff" strokeWidth=".4" />
+              <path d="M -2 0 H 2 M 0 -2 V 2" stroke={truthVisible ? "#03d6d0" : "#b75817"} strokeWidth=".22" />
+            </g>
+          )}
+          {!showPrior && visibleMarkers.map((marker) => (
             <g
               key={marker.id}
               transform={`translate(${marker.position.x + 0.5} ${marker.position.y + 0.5}) scale(${symbolScale})`}
             >
               <title>
-                {marker.kind} at ({marker.position.x}, {marker.position.y})
+                {marker.kind} at ({marker.position.x}, {marker.position.y}){marker.value != null ? ` · ${marker.value.toFixed(3)}` : ""}
               </title>
               {marker.kind === "observe" ? (
                 <circle r=".3" fill="none" stroke="#554d45" strokeWidth=".12" />
@@ -237,12 +288,14 @@ export function MarsGrid({
               onClick={() => {
                 onSelect(a.id);
                 setReveal(false);
+                setShowPrior(false);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   onSelect(a.id);
                   setReveal(false);
+                setShowPrior(false);
                 }
               }}
             >
@@ -250,7 +303,7 @@ export function MarsGrid({
                 {a.label} · ({a.position.x}, {a.position.y}) ·{" "}
                 {a.budgetRemaining} credits
               </title>
-              {selected === a.id && !truthVisible && (
+              {selected === a.id && !truthVisible && !showPrior && (
                 <circle
                   className="agent-selection"
                   r="1.35"
@@ -298,24 +351,21 @@ export function MarsGrid({
       </div>
       <div className="map-legend">
         <div className="probability-legend">
-          <span>0</span>
+          <span>{low.toFixed(3)}</span>
           <div className="legend-ramp" />
-          <span>1</span>
-          <span>{truthVisible ? "Water intensity" : "Belief score"}</span>
+          <span>{high.toFixed(3)}</span>
+          <span>{truthVisible ? "Water intensity" : scaled ? "Belief · relative scale" : "Belief · fixed scale"}</span>
         </div>
         <span className="cell-readout">
           {uniform
             ? `Uniform belief · ${present[0].toFixed(2)} everywhere`
             : cell
-              ? `(${cell.x}, ${cell.y}) · ${value == null ? "unknown" : value.toFixed(2)}`
+              ? `(${cell.x}, ${cell.y}) · ${value == null ? "unknown" : value.toFixed(3)}`
               : "Hover to inspect"}
         </span>
       </div>
-      {truthVisible && groundTruth && (
-        <p className="small muted">
-          Successful drill threshold: {groundTruth.successThreshold}
-        </p>
-      )}
+      <p className="map-key">○ Observation · × Dry drill · ⊕ {truthVisible ? "Water peak" : "Highest belief"}. {peak && `(${peak.x}, ${peak.y}) · ${maximum.toFixed(3)}${!truthVisible ? " · first cell if tied" : ""}`}</p>
+      {!truthVisible && <p className="truth-help">To see the actual water deposit, select <strong>Reveal truth</strong>{!state.groundTruthAvailable ? " after the experiment ends" : " above"}. Belief and sensor readings are not the water map.</p>}
       <div className="map-footnote">
         <MapPin size={14} />
         <span>

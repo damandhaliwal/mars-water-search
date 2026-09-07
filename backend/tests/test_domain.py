@@ -753,11 +753,14 @@ def test_terminal_failure_eligibility_also_excludes_final_round_joiner():
     assert result.pool.eligible_member_ids == ["A"]
 
 
-def test_human_coarse_intensity_estimate_has_less_mean_error_than_noisy_local_sensor():
+@pytest.mark.parametrize("noise, human_more_accurate", [(0.25, True), (0.05, False)])
+def test_human_and_sensor_accuracy_depend_on_sensor_noise(noise, human_more_accurate):
     human_errors = []
     sensor_errors = []
     for seed in range(20):
-        experiment = create_experiment(ExperimentConfig(seed=seed), "quality")
+        experiment = create_experiment(
+            ExperimentConfig(seed=seed, observation_noise=noise), "quality"
+        )
         request = prepare_human_requests(experiment, [action("A", "choose_human")])[0]
         # Fixed locations assess the information source, with no rover policy.
         for index, (x, y) in enumerate(
@@ -773,7 +776,12 @@ def test_human_coarse_intensity_estimate_has_less_mean_error_than_noisy_local_se
             sensor_errors.append((signal - truth) ** 2)
     # These are intensity-score errors on the configured synthetic distribution,
     # not calibrated water-discovery probabilities or live strategic performance.
-    assert np.mean(human_errors) < np.mean(sensor_errors) * 0.5
+    if human_more_accurate:
+        assert np.mean(human_errors) < np.mean(sensor_errors) * 0.5
+    else:
+        # Cleaner local readings can beat a coarse regional estimate. Human
+        # advice offers coverage, not guaranteed pointwise accuracy superiority.
+        assert np.mean(sensor_errors) < np.mean(human_errors)
 
 
 def test_human_quality_controls_distance_toward_coarse_blurred_field():

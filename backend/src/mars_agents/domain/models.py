@@ -265,3 +265,4 @@ class AgentView(DomainModel):
     human_queries_remaining: int
     max_rounds: int
     water_success_threshold: float
+    search_context: dict[str, Any] = Field(default_factory=dict)

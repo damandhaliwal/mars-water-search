@@ -49,6 +49,9 @@ def present(
         {**p.model_dump(), "regime": exp.agents[p.agent_id].regime.value} for p in exp.payouts
     ]
     agents = []
+    evidence_values = {
+        e.id: e.value for agent in exp.agents.values() for e in agent.evidence
+    }
     for agent in exp.agents.values():
         advice = agent.human_advice
         latest = advice[-1] if advice else None
@@ -128,6 +131,7 @@ def present(
                     "agent_id": m.agent_id,
                     "position": m.position.model_dump(),
                     "kind": m.kind,
+                    "value": evidence_values.get(m.evidence_id),
                 }
                 for m in exp.markers
             ],
@@ -144,7 +148,7 @@ def present(
             "winner": winner,
             "results": payouts if terminal else None,
             "failure_reason": exp.terminal_reason if exp.status == "failure" else None,
-            "ground_truth_available": terminal,
+            "ground_truth_available": terminal or exp.config.human_mode == "simulated",
             "provider_failure": provider_failure,
         }
     )
@@ -165,8 +169,9 @@ def present_human(request: HumanRequest) -> HumanRequestSnapshot:
 
 
 def reveal(experiment: Experiment) -> GroundTruthSnapshot:
-    if experiment.status not in {"success", "failure"}:
-        raise ValueError("Ground truth is available only after the experiment ends.")
+    if (experiment.status not in {"success", "failure"}
+            and experiment.config.human_mode != "simulated"):
+        raise ValueError("Interactive adviser runs reveal water only after the experiment ends.")
     return GroundTruthSnapshot.model_validate(
         {
             "intensity": experiment.truth.water.model_dump(),

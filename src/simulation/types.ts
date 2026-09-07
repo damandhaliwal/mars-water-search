@@ -63,6 +63,7 @@ export type MapMarker = {
   agentId: string;
   position: Position;
   kind: "observe" | "dry" | "water";
+  value?: number | null;
 };
 export type PoolState = {
   memberIds: string[];

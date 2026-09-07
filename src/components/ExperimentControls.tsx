@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw, StepForward } from "lucide-react";
+import { Dices, Pause, Play, RotateCcw, StepForward } from "lucide-react";
 import { useState } from "react";
 import {
   isTerminal,
@@ -22,6 +22,7 @@ const toDraft = (config: ExperimentConfig) =>
   Object.fromEntries(
     Object.entries(config).map(([key, value]) => [key, String(value)]),
   );
+const randomSeed = () => String(Math.floor(Math.random() * 1_000_000_000));
 
 export function ExperimentControls({
   state,
@@ -46,7 +47,13 @@ export function ExperimentControls({
   canReplay: boolean;
   replayActive: boolean;
 }) {
-  const [draft, setDraft] = useState(() => toDraft(config));
+  const [draft, setDraft] = useState(() => {
+    const initial = toDraft(config);
+    // A fresh form starts on a random world so consecutive experiments get
+    // fresh agent starts and deposit placement. Pin a seed to reproduce one.
+    if (!state) initial.seed = randomSeed();
+    return initial;
+  });
   const blocked =
     !state ||
     isTerminal(state) ||
@@ -135,21 +142,55 @@ export function ExperimentControls({
           {fields.map((field) => (
             <label key={field.key} className="settings-field">
               <span>{field.label}</span>
-              <input
-                type="number"
-                name={field.key}
-                min={field.min}
-                max={"max" in field ? field.max : undefined}
-                step={field.step}
-                required
-                value={draft[field.key]}
-                onChange={(event) =>
-                  setDraft((previous) => ({
-                    ...previous,
-                    [field.key]: event.target.value,
-                  }))
-                }
-              />
+              {field.key === "seed" ? (
+                <span className="seed-row">
+                  <input
+                    type="number"
+                    name={field.key}
+                    min={field.min}
+                    max={"max" in field ? field.max : undefined}
+                    step={field.step}
+                    required
+                    value={draft[field.key]}
+                    onChange={(event) =>
+                      setDraft((previous) => ({
+                        ...previous,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="seed-dice"
+                    title="Randomize seed for fresh agent starts and deposit placement"
+                    aria-label="Randomize seed"
+                    onClick={() =>
+                      setDraft((previous) => ({
+                        ...previous,
+                        seed: randomSeed(),
+                      }))
+                    }
+                  >
+                    <Dices size={15} />
+                  </button>
+                </span>
+              ) : (
+                <input
+                  type="number"
+                  name={field.key}
+                  min={field.min}
+                  max={"max" in field ? field.max : undefined}
+                  step={field.step}
+                  required
+                  value={draft[field.key]}
+                  onChange={(event) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      [field.key]: event.target.value,
+                    }))
+                  }
+                />
+              )}
             </label>
           ))}
           <label className="settings-field">

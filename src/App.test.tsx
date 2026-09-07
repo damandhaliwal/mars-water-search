@@ -44,10 +44,14 @@ function setup() {
   return { client, fetcher, user: userEvent.setup() };
 }
 it("prefills editable defaults without running, preserves extra config, and keeps all paths", async () => {
+  const random = vi.spyOn(Math, "random").mockReturnValue(0.123456789);
   const { fetcher, user } = setup();
   await screen.findByRole("button", { name: "Create experiment" });
   expect(fetcher).toHaveBeenCalledTimes(2);
-  expect((screen.getByLabelText("Seed") as HTMLInputElement).value).toBe("42");
+  expect((screen.getByLabelText("Seed") as HTMLInputElement).value).toBe(
+    "123456789",
+  );
+  random.mockRestore();
   fireEvent.change(screen.getByLabelText("Seed"), { target: { value: "123" } });
   fireEvent.change(screen.getByLabelText("Grid width"), {
     target: { value: "12" },
@@ -251,6 +255,21 @@ it("replays the recorded run from zero without posting model steps", async () =>
   expect(
     fetcher.mock.calls.filter(([url]) => String(url).endsWith("/step")),
   ).toHaveLength(0);
+});
+it("randomizes the seed for a fresh world while keeping pinned seeds reproducible", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0.987654321);
+  const { fetcher, user } = setup();
+  await screen.findByRole("button", { name: "Create experiment" });
+  const seed = screen.getByLabelText("Seed") as HTMLInputElement;
+  expect(seed.value).toBe("987654321");
+  vi.spyOn(Math, "random").mockReturnValue(0.111111111);
+  await user.click(screen.getByRole("button", { name: "Randomize seed" }));
+  expect(seed.value).toBe("111111111");
+  fetcher.mockResolvedValueOnce(json(snapshot()));
+  await user.click(screen.getByRole("button", { name: "Create experiment" }));
+  await screen.findByRole("region", { name: "Mars exploration map" });
+  expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body)).seed).toBe(111111111);
+  vi.restoreAllMocks();
 });
 it("renders creation when the API omits every null field", async () => {
   const { fetcher, user } = setup();

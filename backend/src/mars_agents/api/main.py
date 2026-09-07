@@ -159,8 +159,10 @@ def create_app(data_dir: Path | None = None, settings: GeminiSettings | None = N
     )
     def truth(experiment_id: str, svc: Service):
         exp = svc.get(experiment_id)
-        if exp.status not in {"success", "failure"}:
-            raise HTTPException(403, "Ground truth is available only after the experiment ends.")
+        if exp.status not in {"success", "failure"} and exp.config.human_mode != "simulated":
+            raise HTTPException(
+                403, "Interactive adviser runs reveal water only after the experiment ends."
+            )
         return reveal(exp)
 
     return app

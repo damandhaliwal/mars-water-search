@@ -151,7 +151,13 @@ def test_api_creation_missing_key_validation_and_no_truth(tmp_path):
         eid = created["experimentId"]
         response = client.post(f"/api/experiments/{eid}/step")
         assert response.status_code == 503 and "GEMINI_API_KEY" in response.json()["detail"]
-        assert client.post(f"/api/experiments/{eid}/reveal-ground-truth").status_code == 403
+        assert created["groundTruthAvailable"] is True
+        assert client.post(f"/api/experiments/{eid}/reveal-ground-truth").status_code == 200
+        interactive = client.post("/api/experiments", json={"humanMode": "interactive"}).json()
+        assert interactive["groundTruthAvailable"] is False
+        assert client.post(
+            f"/api/experiments/{interactive['experimentId']}/reveal-ground-truth"
+        ).status_code == 403
         assert client.post("/api/experiments", json={"numberOfWaterDeposits": 3}).status_code == 422
         reset = client.post(f"/api/experiments/{eid}/reset", json={"numberOfAgents": 2}).json()
         assert len(reset["agents"]) == 2 and reset["experimentId"] != eid

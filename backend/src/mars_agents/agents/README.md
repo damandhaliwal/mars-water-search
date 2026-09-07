@@ -76,10 +76,19 @@ paid API usage. Without a key it skips; a skipped test is not live verification.
 ## Execution and information guarantees
 
 There is one retained `ToolCallingAgent` per `(experiment.id, agent_id)`. Every
-round and retry resets memory and state and builds fresh proposal tools. The only
-prompt input is the compact `AgentView`, checked against the canonical domain
-view of a detached start-of-round snapshot. Neither a full belief grid nor the
-experiment's truth, human raster, or other private evidence is sent to Gemini.
+round and retry resets memory and state and builds fresh proposal tools. The
+prompt begins with the cautious local-search procedure in `prompts.py`, followed
+by an economic decision sheet rendered from the episode config, a
+per-round CURRENT ECONOMIC OPTIONS block computed from the rover's own budget,
+costs, pool size, and candidate moves, and then the compact `AgentView`, checked
+against the canonical domain view of a detached start-of-round snapshot. The
+view includes `search_context`: retained strong readings, local comparisons,
+probe costs and pool-only member resources. Sensor noise magnitude is omitted;
+rover instructions describe noise qualitatively and use a three-point stopping
+rule for unproductive local search. Its builder never reads truth or
+the human raster. Neither
+a full belief grid nor the experiment's truth, human raster, or other private
+evidence is sent to Gemini.
 
 Legal actions from the domain are lowercase; the collector normalizes its internal
 allowlist and returns the actual lowercase domain `AgentAction` enum. The tools

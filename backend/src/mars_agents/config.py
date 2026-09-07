@@ -36,7 +36,7 @@ class ExperimentConfig(BaseModel):
     max_human_queries: int = Field(default=1, ge=0, le=100, strict=True)
     water_success_threshold: float = Field(default=0.75, gt=0, le=1)
     prior_probability: float = Field(default=0.1, gt=0, lt=1)
-    observation_noise: float = Field(default=0.25, gt=0, le=2)
+    observation_noise: float = Field(default=0.05, gt=0, le=2)
     observation_blur_sigma: float = Field(default=2, gt=0)
     human_noise: float = Field(default=0.03, ge=0, le=1)
     human_blur_sigma: float = Field(default=2, gt=0)

@@ -163,7 +163,7 @@ export class BackendSimulationClient implements SimulationClient {
               })),
             }
           : undefined,
-      groundTruthAvailable: isTerminal(state) && state.groundTruthAvailable,
+      groundTruthAvailable: (isTerminal(state) || state.config.humanMode === "simulated") && state.groundTruthAvailable,
     };
     const newExperiment =
       state.experimentId !== this.snapshot.state?.experimentId;
@@ -173,7 +173,7 @@ export class BackendSimulationClient implements SimulationClient {
       error: null,
       config: state.config,
       humanRequests: [],
-      ...(!isTerminal(state) || newExperiment ? { groundTruth: null } : {}),
+      ...(!safeState.groundTruthAvailable || newExperiment ? { groundTruth: null } : {}),
     });
     // Publish awaiting_human before fetching so the presenter is obscured immediately.
     if (state.status === "awaiting_human") await this.loadHumanRequests();
@@ -425,11 +425,10 @@ export class BackendSimulationClient implements SimulationClient {
   revealGroundTruth = async () => {
     await this.command(async () => {
       if (
-        !isTerminal(this.snapshot.state) ||
         !this.snapshot.state?.groundTruthAvailable
       )
         throw new Error(
-          "Ground truth is only available after the experiment ends.",
+          "Water revelation is unavailable for this run until it ends.",
         );
       const groundTruth = await this.request<GroundTruth>(
         this.path("/reveal-ground-truth"),

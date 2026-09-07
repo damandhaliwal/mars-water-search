@@ -22,8 +22,9 @@ from mars_agents.beliefs.views import agent_view
 from mars_agents.domain.actions import ActionProposal, legal_actions, validate_action
 from mars_agents.domain.models import AgentView, Experiment
 
+from .economics import render_economic_options
 from .model_factory import GeminiSettings, create_model
-from .prompts import SYSTEM_PROMPT
+from .prompts import SYSTEM_PROMPT, render_system_prompt
 from .tools import ActionCollector, InvalidChoice, MoveArguments, ReasonArguments, action_tools
 
 FailureCategory = Literal[
@@ -175,10 +176,10 @@ class _SingleActionAgent(ToolCallingAgent):
         self.safe_tool_args: dict[str, Any] = {}
         self._secret = settings.gemini_api_key
 
-    def reset_round(self, prompt: str, collector: ActionCollector) -> None:
+    def reset_round(self, prompt: str, collector: ActionCollector, system: str) -> None:
         self.clear_round()
         self.tools = {tool.name: tool for tool in action_tools(collector)}
-        self.memory.system_prompt = SystemPromptStep(system_prompt=SYSTEM_PROMPT)
+        self.memory.system_prompt = SystemPromptStep(system_prompt=system)
         self.memory.steps.append(TaskStep(task=prompt))
         self.task = prompt
 
@@ -341,14 +342,19 @@ class GeminiDecisionService:
         allowed: frozenset[str],
         version: int,
     ) -> DecisionResult:
-        prompt = "Start-of-round authorized view:\n" + view.model_dump_json()
+        prompt = (
+            render_economic_options(snapshot, agent_id, view)
+            + "\nStart-of-round authorized view:\n"
+            + view.model_dump_json()
+        )
+        system = render_system_prompt(snapshot.config)
         attempts: list[DecisionAttempt] = []
         correction = ""
         for number in range(self.settings.gemini_retries + 1):
             collector = ActionCollector(
                 agent_id, allowed, lambda proposal: validate_action(snapshot, proposal)
             )
-            agent.reset_round(prompt + correction, collector)
+            agent.reset_round(prompt + correction, collector, system)
             step = ActionStep(step_number=1, timing=Timing(start_time=time.time()))
             error_code = None
             provider_failure = None

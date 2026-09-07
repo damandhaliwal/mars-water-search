@@ -46,6 +46,8 @@ class ExperimentLogger:
         os.replace(temporary, directory / "events.jsonl")
 
     def summary(self, experiment_id: str, payload: dict) -> None:
+        from mars_agents.experiments.markdown import write_report
+
         directory = self.root / experiment_id
         write_json(directory / "summary.json", payload)
         temporary = directory / "episode_summary.csv.tmp"
@@ -58,3 +60,4 @@ class ExperimentLogger:
             writer.writeheader()
             writer.writerow(row)
         os.replace(temporary, directory / "episode_summary.csv")
+        write_report(directory)

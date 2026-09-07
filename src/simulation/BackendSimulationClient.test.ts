@@ -297,7 +297,7 @@ describe("backend HTTP adapter", () => {
     );
     await client.create(config);
     await expect(client.revealGroundTruth()).rejects.toThrow(
-      "only available after",
+      "unavailable for this run",
     );
     expect(client.getSnapshot().groundTruth).toBeNull();
     expect(client.getSnapshot().state).not.toHaveProperty("groundTruth");
@@ -428,4 +428,19 @@ describe("backend HTTP adapter", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
+});
+
+it("retains an explicitly revealed simulated-run water map across live state refreshes", async () => {
+  const fetcher = vi.fn<typeof fetch>();
+  const client = new BackendSimulationClient("/api", fetcher);
+  const state = snapshot({ groundTruthAvailable: true, config: { ...config, humanMode: "simulated" } });
+  fetcher.mockResolvedValueOnce(json(state));
+  await client.create(state.config);
+  expect(client.getSnapshot().groundTruth).toBeNull();
+  fetcher.mockResolvedValueOnce(json(groundTruth));
+  await client.revealGroundTruth();
+  fetcher.mockResolvedValueOnce(json({ ...state, round: 1 }));
+  await client.getExperimentState();
+  expect(client.getSnapshot().groundTruth).toEqual(groundTruth);
+  client.dispose();
 });

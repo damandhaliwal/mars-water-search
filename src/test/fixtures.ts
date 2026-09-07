@@ -21,6 +21,7 @@ export const config: ExperimentConfig = {
   treatment: "free_choice",
   maxRounds: 100,
   observationNoise: 0.2,
+  priorProbability: 0.1,
   moveCostPerCell: 1,
 };
 export const health: Health = {

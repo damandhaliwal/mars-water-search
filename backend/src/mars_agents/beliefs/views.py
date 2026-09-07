@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from mars_agents.beliefs.search import search_context
 from mars_agents.beliefs.updater import coarse_grid
 from mars_agents.domain.actions import legal_actions
 from mars_agents.domain.models import (
@@ -83,6 +84,7 @@ def agent_view(experiment: Experiment, agent_id: str) -> AgentView:
         human_queries_remaining=max(0, config.max_human_queries - agent.human_queries),
         max_rounds=config.max_rounds,
         water_success_threshold=config.water_success_threshold,
+        search_context=search_context(experiment, agent_id),
     )
     # Callers can mutate their view without altering the authoritative snapshot.
     return view.model_copy(deep=True)
